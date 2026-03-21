@@ -612,19 +612,30 @@ def scan_and_update():
                     continue
                 try:
                     prices = json.loads(market.get("outcomePrices", "[0.5,0.5]"))
-                    bid = float(prices[0])
-                    ask = float(prices[1]) if len(prices) > 1 else bid
+                    # prices[0] = YES price, prices[1] = NO price
+                    yes_price = float(prices[0])
+                    no_price = float(prices[1]) if len(prices) > 1 else yes_price
                 except Exception:
                     continue
+                
+                # Determine which side to buy based on bucket type
+                # For ALL buckets, we bet that the forecast will be IN the bucket (YES)
+                # prices[0] = YES = "forecast WILL be in bucket"
+                # prices[1] = NO = "forecast will NOT be in bucket"
+                bid = yes_price   # Buy YES at yes_price
+                ask = no_price    # Sell NO at no_price
+                
                 outcomes.append({
                     "question":  question,
                     "market_id": mid,
                     "range":     rng,
-                    "bid":       round(bid, 4),
-                    "ask":       round(ask, 4),
-                    "price":     round(bid, 4),   # for compatibility
+                    "bid":       round(bid, 4),    # YES price (what we buy)
+                    "ask":       round(ask, 4),    # NO price (what we sell)
+                    "price":     round(bid, 4),    # for compatibility
                     "spread":    round(ask - bid, 4),
                     "volume":    round(volume, 0),
+                    "yes_price": round(yes_price, 4),
+                    "no_price":  round(no_price, 4),
                 })
 
             outcomes.sort(key=lambda x: x["range"][0])
@@ -782,18 +793,20 @@ def scan_and_update():
                         "question":     o["question"],
                         "bucket_low":   t_low,
                         "bucket_high":  t_high,
-                        "entry_price":  ask,       # enter at ask
-                        "bid_at_entry": bid,
+                        "entry_price":  bid,       # enter at YES price (bid)
+                        "bid_at_entry": bid,       # what we paid for YES
+                        "yes_price_at_entry": o.get("yes_price", bid),
                         "spread":       spread,
-                        "shares":       round(size / ask, 2),
+                        "shares":       round(size / bid, 2),  # shares based on YES price
                         "cost":         size,
-                        "p":            round(p, 4),
+                        "p":            round(p, 4),    # our probability estimate
                         "ev":           round(ev, 4),
                         "kelly":        round(kelly, 4),
                         "forecast_temp":forecast_temp,
                         "forecast_src": best_source,
                         "sigma":        sigma,
                         "gfs_confidence": confidence,
+                        "bug_status":   "after-bug",   # Mark as post-fix
                         "opened_at":    snap.get("ts"),
                         "status":       "open",
                         "pnl":          None,
@@ -1009,6 +1022,41 @@ def print_report():
     if not resolved:
         print(f"{'='*55}\n")
         return
+
+    # Bug Check: Verify entry prices are reasonable
+    print(f"\n  BUG CHECK (Entry Price Validation):")
+    print(f"  {'City':<16} {'Forecast':<10} {'Bucket':<12} {'Entry':<8} {'Expected'}")
+    print(f"  {'-'*60}")
+    bugs_found = 0
+    for m in resolved:
+        pos = m.get("position", {})
+        forecast = pos.get("forecast_temp")
+        entry = pos.get("entry_price", 0)
+        bucket = f"{pos.get('bucket_low', 'N/A')}-{pos.get('bucket_high', 'N/A')}"
+        
+        # Check if entry price makes sense
+        # For a "≤" bucket with forecast below threshold, entry should be HIGH (>0.5)
+        # For a "≤" bucket with forecast above threshold, entry should be LOW (<0.5)
+        if forecast and entry:
+            # Simple check: if forecast is in bucket, entry should be >0.5
+            t_low, t_high = pos.get("bucket_low", -999), pos.get("bucket_high", 999)
+            in_bucket = t_low <= forecast <= t_high
+            expected_high = in_bucket  # If in bucket, expect high entry
+            actual_high = entry > 0.5
+            
+            if expected_high != actual_high:
+                status = "🔴 BUG"
+                bugs_found += 1
+            else:
+                status = "🟢 OK"
+            
+            print(f"  {LOCATIONS.get(m['city'], {}).get('name', m['city']):<16} {forecast:<10.1f} {bucket:<12} {entry:<8.3f} {status}")
+    
+    if bugs_found > 0:
+        print(f"\n  ⚠️  Found {bugs_found} potential bugs in entry pricing!")
+        print(f"  This indicates YES/NO price interpretation may be wrong.")
+    else:
+        print(f"\n  ✅ All entry prices look correct.")
 
     print(f"\n  By city:")
     for city in sorted(set(m["city"] for m in resolved)):

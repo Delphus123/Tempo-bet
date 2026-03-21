@@ -1,0 +1,43 @@
+
+=======================================================
+  WEATHERBET — STARTING
+=======================================================
+  Cities:     20
+  Balance:    $10,000 | Max bet: $20.0
+  Scan:       60 min | Monitor: 10 min
+  Sources:    ECMWF + HRRR(US) + METAR(D+0)
+  Data:       /home/hal9000/Projects/Tempo-bet/data
+  Ctrl+C to stop
+
+[2026-03-21 20:24:31] full scan...
+  -> New York City...   [LOW CONF] New York City 2026-03-23: conf=0.13, min_ev=0.08
+  [LOW CONF] New York City 2026-03-24: conf=0.13, min_ev=0.08
+ok
+  -> Chicago... ok
+  -> Miami... ok
+  -> Dallas... ok
+  -> Seattle...   [LOW CONF] Seattle 2026-03-22: conf=0.17, min_ev=0.08
+ok
+  -> Atlanta...   [LOW CONF] Atlanta 2026-03-24: conf=0, min_ev=0.08
+ok
+  -> London... ok
+  -> Paris... ok
+  -> Munich... ok
+  -> Ankara... ok
+  -> Seoul...   [LOW CONF] Seoul 2026-03-22: conf=0.12, min_ev=0.08
+  [LOW CONF] Seoul 2026-03-23: conf=0.07, min_ev=0.08
+  [LOW CONF] Seoul 2026-03-24: conf=0.13, min_ev=0.08
+ok
+  -> Tokyo...   [METAR] tokyo: HTTPSConnectionPool(host='aviationweather.gov', port=443): Read timed out. (read timeout=8)
+ok
+  -> Shanghai...   [LOW CONF] Shanghai 2026-03-22: conf=0.42, min_ev=0.08
+ok
+  -> Singapore... ok
+  -> Lucknow...   [LOW CONF] Lucknow 2026-03-23: conf=0.45, min_ev=0.08
+  [LOW CONF] Lucknow 2026-03-24: conf=0.22, min_ev=0.08
+ok
+  -> Tel Aviv... ok
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... 
