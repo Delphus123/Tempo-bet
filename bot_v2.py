@@ -21,6 +21,17 @@ import requests
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+# Telegram Alerts
+try:
+    from telegram_alerts import (
+        alert_new_trade, alert_trade_closed, alert_trade_resolved,
+        alert_pnl_update, alert_error, alert_bot_started, alert_daily_report
+    )
+    TELEGRAM_ENABLED = True
+except Exception as e:
+    print(f"[ALERTS] Telegram not available: {e}")
+    TELEGRAM_ENABLED = False
+
 # =============================================================================
 # CONFIG
 # =============================================================================
@@ -137,8 +148,19 @@ def get_sigma(city_slug, source="ecmwf"):
         return _cal[key]["sigma"]
     return SIGMA_F if LOCATIONS[city_slug]["unit"] == "F" else SIGMA_C
 
+def get_brier_score(city_slug, source="ecmwf"):
+    """Get Brier Score for a source. Returns 0.25 if no data (default uncertain)."""
+    key = f"{city_slug}_{source}"
+    if key in _cal and "brier_score" in _cal[key]:
+        return _cal[key]["brier_score"]
+    return 0.25  # Default uncertain prediction
+
 def run_calibration(markets):
-    """Recalculates sigma from resolved markets."""
+    """
+    Recalculates sigma and Brier Score from resolved markets.
+    Brier Score = mean((predicted_prob - actual)²)
+    Lower is better (0 = perfect, 1 = worst)
+    """
     resolved = [m for m in markets if m.get("resolved") and m.get("actual_temp") is not None]
     cal = load_cal()
     updated = []
@@ -147,20 +169,58 @@ def run_calibration(markets):
         for city in set(m["city"] for m in resolved):
             group = [m for m in resolved if m["city"] == city]
             errors = []
+            brier_scores = []
+            
             for m in group:
-                snap = next((s for s in reversed(m.get("forecast_snapshots", []))
-                             if s["source"] == source), None)
-                if snap and snap.get("temp") is not None:
-                    errors.append(abs(snap["temp"] - m["actual_temp"]))
+                # Find forecast snapshot for this source
+                snap = None
+                for s in reversed(m.get("forecast_snapshots", [])):
+                    if s.get("best_source") == source or source in s.get("best_source", ""):
+                        snap = s
+                        break
+                
+                if not snap or snap.get("best") is None:
+                    continue
+                    
+                forecast_temp = snap["best"]
+                actual_temp = m["actual_temp"]
+                
+                # Calculate temperature error
+                errors.append(abs(forecast_temp - actual_temp))
+                
+                # Calculate Brier Score for this prediction
+                # We predicted a bucket - check if actual temp was in bucket
+                if m.get("position"):
+                    predicted_prob = m["position"].get("p", 0.5)  # Our assigned probability
+                    # Actual outcome: 1 if we won, 0 if we lost
+                    actual_outcome = 1 if m["resolved_outcome"] == "win" else 0
+                    brier = (predicted_prob - actual_outcome) ** 2
+                    brier_scores.append(brier)
+            
             if len(errors) < CALIBRATION_MIN:
                 continue
-            mae  = sum(errors) / len(errors)
-            key  = f"{city}_{source}"
-            old  = cal.get(key, {}).get("sigma", SIGMA_F if LOCATIONS[city]["unit"] == "F" else SIGMA_C)
-            new  = round(mae, 3)
-            cal[key] = {"sigma": new, "n": len(errors), "updated_at": datetime.now(timezone.utc).isoformat()}
+                
+            mae = sum(errors) / len(errors)
+            brier_score = sum(brier_scores) / len(brier_scores) if brier_scores else 0.5
+            
+            key = f"{city}_{source}"
+            old = cal.get(key, {}).get("sigma", SIGMA_F if LOCATIONS[city]["unit"] == "F" else SIGMA_C)
+            new = round(mae, 3)
+            old_brier = cal.get(key, {}).get("brier_score", 0.25)
+            new_brier = round(brier_score, 4)
+            
+            cal[key] = {
+                "sigma": new, 
+                "n": len(errors), 
+                "brier_score": new_brier,
+                "brier_n": len(brier_scores),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+            
             if abs(new - old) > 0.05:
-                updated.append(f"{LOCATIONS[city]['name']} {source}: {old:.2f}->{new:.2f}")
+                updated.append(f"{LOCATIONS[city]['name']} {source}: σ {old:.2f}->{new:.2f}")
+            if abs(new_brier - old_brier) > 0.02:
+                updated.append(f"{LOCATIONS[city]['name']} {source}: Brier {old_brier:.3f}->{new_brier:.3f}")
 
     CALIBRATION_FILE.write_text(json.dumps(cal, indent=2), encoding="utf-8")
     if updated:
@@ -215,6 +275,66 @@ def get_hrrr(city_slug, dates):
                     result[date] = round(temp)
     except Exception as e:
         print(f"  [HRRR] {city_slug}: {e}")
+    return result
+
+def get_model_ensemble(city_slug, dates):
+    """
+    Multi-model ensemble: uses ECMWF + HRRR + GFS to estimate confidence.
+    Returns: {date: {"mean": float, "confidence": float, "members": int}}
+    confidence = agreement between models (0-1, higher = more confident)
+    """
+    loc = LOCATIONS[city_slug]
+    unit = loc["unit"]
+    temp_unit = "fahrenheit" if unit == "F" else "celsius"
+    result = {}
+    
+    try:
+        # Get forecasts from multiple models
+        models = ["ecmwf_ifs025", "gfs_seamless"]
+        all_temps = {date: [] for date in dates}
+        
+        for model in models:
+            url = (
+                f"https://api.open-meteo.com/v1/forecast"
+                f"?latitude={loc['lat']}&longitude={loc['lon']}"
+                f"&daily=temperature_2m_max"
+                f"&temperature_unit={temp_unit}"
+                f"&forecast_days=7"
+                f"&timezone={TIMEZONES.get(city_slug, 'UTC')}"
+                f"&models={model}&bias_correction=true"
+            )
+            data = requests.get(url, timeout=(5, 8)).json()
+            
+            if "error" not in data and "daily" in data:
+                for date in dates:
+                    if date in data["daily"]["time"]:
+                        idx = data["daily"]["time"].index(date)
+                        temp = data["daily"]["temperature_2m_max"][idx]
+                        if temp is not None:
+                            all_temps[date].append(float(temp))
+        
+        # Calculate mean and confidence from model agreement
+        for date, temps in all_temps.items():
+            if temps:
+                mean_temp = sum(temps) / len(temps)
+                
+                # Confidence based on model agreement
+                if len(temps) > 1:
+                    variance = sum((t - mean_temp) ** 2 for t in temps) / len(temps)
+                    std_dev = variance ** 0.5
+                    # High confidence if models agree (std < 2°C)
+                    confidence = max(0, min(1, 1 - (std_dev / 3.0)))
+                else:
+                    confidence = 0.5  # Only one model
+                
+                result[date] = {
+                    "mean": round(mean_temp, 1) if unit == "C" else round(mean_temp),
+                    "confidence": round(confidence, 2),
+                    "members": len(temps)
+                }
+    except Exception as e:
+        print(f"  [MODEL_ENSEMBLE] {city_slug}: {e}")
+    
     return result
 
 def get_metar(city_slug):
@@ -406,15 +526,22 @@ def take_forecast_snapshot(city_slug, dates):
     now_str = datetime.now(timezone.utc).isoformat()
     ecmwf   = get_ecmwf(city_slug, dates)
     hrrr    = get_hrrr(city_slug, dates)
+    gfs_ens = get_model_ensemble(city_slug, dates)
     today   = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     snapshots = {}
     for date in dates:
+        # Get GFS ensemble data for this date
+        gfs_data = gfs_ens.get(date)
+        
         snap = {
             "ts":    now_str,
             "ecmwf": ecmwf.get(date),
             "hrrr":  hrrr.get(date) if date <= (datetime.now(timezone.utc) + timedelta(days=2)).strftime("%Y-%m-%d") else None,
             "metar": get_metar(city_slug) if date == today else None,
+            "gfs_mean": gfs_data.get("mean") if gfs_data else None,
+            "gfs_confidence": gfs_data.get("confidence") if gfs_data else None,
+            "gfs_members": gfs_data.get("members") if gfs_data else 0,
         }
         # Best forecast: HRRR for US D+0/D+1, otherwise ECMWF
         loc = LOCATIONS[city_slug]
@@ -514,6 +641,9 @@ def scan_and_update():
                 "metar":       snap.get("metar"),
                 "best":        snap.get("best"),
                 "best_source": snap.get("best_source"),
+                "gfs_mean":    snap.get("gfs_mean"),
+                "gfs_confidence": snap.get("gfs_confidence"),
+                "gfs_members":  snap.get("gfs_members"),
             }
             mkt["forecast_snapshots"].append(forecast_snap)
 
@@ -587,10 +717,36 @@ def scan_and_update():
                         mkt["position"]["status"]       = "closed"
                         closed += 1
                         print(f"  [CLOSE] {loc['name']} {date} — forecast changed | PnL: {'+'if pnl>=0 else ''}{pnl:.2f}")
+                        
+                        # Telegram Alert: Position Closed
+                        if TELEGRAM_ENABLED:
+                            alert_trade_closed(
+                                city=loc['name'],
+                                date=date,
+                                bucket=f"{pos['bucket_low']}-{pos['bucket_high']}{unit_sym}",
+                                pnl=pnl,
+                                reason="Forecast Changed",
+                                source=pos.get('forecast_src', 'N/A')
+                            )
 
             # --- OPEN POSITION ---
             if not mkt.get("position") and forecast_temp is not None and hours >= MIN_HOURS:
                 sigma = get_sigma(city_slug, best_source or "ecmwf")
+                
+                # Get GFS ensemble confidence for this date
+                confidence = snap.get("gfs_confidence")
+                
+                # Confidence threshold: require high confidence for opening positions
+                # If confidence is low, increase EV requirement
+                min_ev = MIN_EV
+                if confidence is not None:
+                    if confidence < 0.5:
+                        min_ev = MIN_EV * 1.5  # Require 50% more EV if low confidence
+                        print(f"  [LOW CONF] {loc['name']} {date}: conf={confidence}, min_ev={min_ev:.2f}")
+                else:
+                    # No GFS ensemble data, use default
+                    pass
+                
                 best_signal = None
 
                 for o in outcomes:
@@ -613,7 +769,7 @@ def scan_and_update():
 
                     p  = bucket_prob(forecast_temp, t_low, t_high, sigma)
                     ev = calc_ev(p, ask)   # EV calculated from ask
-                    if ev < MIN_EV:
+                    if ev < min_ev:
                         continue
 
                     kelly = calc_kelly(p, ask)
@@ -637,6 +793,7 @@ def scan_and_update():
                         "forecast_temp":forecast_temp,
                         "forecast_src": best_source,
                         "sigma":        sigma,
+                        "gfs_confidence": confidence,
                         "opened_at":    snap.get("ts"),
                         "status":       "open",
                         "pnl":          None,
@@ -655,6 +812,18 @@ def scan_and_update():
                     print(f"  [BUY]  {loc['name']} {horizon} {date} | {bucket_label} | "
                           f"${best_signal['entry_price']:.3f} | EV {best_signal['ev']:+.2f} | "
                           f"${best_signal['cost']:.2f} ({best_signal['forecast_src'].upper()})")
+                    
+                    # Telegram Alert: New Trade
+                    if TELEGRAM_ENABLED:
+                        alert_new_trade(
+                            city=loc['name'],
+                            date=date,
+                            bucket=bucket_label,
+                            price=best_signal['entry_price'],
+                            ev=best_signal['ev'],
+                            cost=best_signal['cost'],
+                            source=best_signal['forecast_src']
+                        )
 
             # Market closed by time
             if hours < 0.5 and mkt["status"] == "open":
@@ -707,6 +876,20 @@ def scan_and_update():
         result = "WIN" if won else "LOSS"
         print(f"  [{result}] {mkt['city_name']} {mkt['date']} | PnL: {'+'if pnl>=0 else ''}{pnl:.2f}")
         resolved += 1
+        
+        # Telegram Alert: Trade Resolved
+        if TELEGRAM_ENABLED:
+            # Get actual temp if available
+            actual_temp = mkt.get('actual_temp')
+            forecast_temp = pos.get('forecast_temp')
+            alert_trade_resolved(
+                city=mkt['city_name'],
+                date=mkt['date'],
+                pnl=pnl,
+                actual_temp=actual_temp if actual_temp else forecast_temp if forecast_temp else "N/A",
+                forecast=pos.get('forecast_temp', 'N/A'),
+                source=pos.get('forecast_src', 'N/A')
+            )
 
         save_market(mkt)
         time.sleep(0.3)
@@ -790,16 +973,42 @@ def print_report():
 
     if not resolved:
         print("  No resolved markets yet.")
+    else:
+        total_pnl = sum(m["pnl"] for m in resolved)
+        wins      = [m for m in resolved if m["resolved_outcome"] == "win"]
+        losses    = [m for m in resolved if m["resolved_outcome"] == "loss"]
+
+        print(f"\n  Total resolved: {len(resolved)}")
+        print(f"  Wins:           {len(wins)} | Losses: {len(losses)}")
+        print(f"  Win rate:       {len(wins)/len(resolved):.0%}")
+        print(f"  Total PnL:      {'+'if total_pnl>=0 else ''}{total_pnl:.2f}")
+
+    # Calibration & Brier Score Report
+    cal = load_cal()
+    if cal:
+        print(f"\n  CALIBRATION (Brier Score):")
+        print(f"  {'City':<16} {'Source':<8} {'Brier':<8} {'N':<5} {'Quality'}")
+        print(f"  {'-'*50}")
+        
+        for city in sorted(set(m["city"] for m in markets if m.get("city"))):
+            for source in ["ecmwf", "hrrr", "metar"]:
+                key = f"{city}_{source}"
+                if key in cal and "brier_score" in cal[key]:
+                    brier = cal[key]["brier_score"]
+                    n = cal[key].get("brier_n", 0)
+                    if brier < 0.15:
+                        quality = "🟢 Excellent"
+                    elif brier < 0.25:
+                        quality = "🟡 Good"
+                    elif brier < 0.35:
+                        quality = "🟠 Fair"
+                    else:
+                        quality = "🔴 Poor"
+                    print(f"  {LOCATIONS[city]['name']:<16} {source:<8} {brier:.4f}   {n:<5} {quality}")
+
+    if not resolved:
+        print(f"{'='*55}\n")
         return
-
-    total_pnl = sum(m["pnl"] for m in resolved)
-    wins      = [m for m in resolved if m["resolved_outcome"] == "win"]
-    losses    = [m for m in resolved if m["resolved_outcome"] == "loss"]
-
-    print(f"\n  Total resolved: {len(resolved)}")
-    print(f"  Wins:           {len(wins)} | Losses: {len(losses)}")
-    print(f"  Win rate:       {len(wins)/len(resolved):.0%}")
-    print(f"  Total PnL:      {'+'if total_pnl>=0 else ''}{total_pnl:.2f}")
 
     print(f"\n  By city:")
     for city in sorted(set(m["city"] for m in resolved)):
@@ -901,6 +1110,10 @@ def run_loop():
     print(f"  Sources:    ECMWF + HRRR(US) + METAR(D+0)")
     print(f"  Data:       {DATA_DIR.resolve()}")
     print(f"  Ctrl+C to stop\n")
+
+    # Telegram Alert: Bot Started
+    if TELEGRAM_ENABLED:
+        alert_bot_started()
 
     last_full_scan = 0
 

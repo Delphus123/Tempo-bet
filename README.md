@@ -158,10 +158,37 @@ Onde:
 
 Usa 25% do Kelly para reduzir variância.
 
+### Model Ensemble + Confidence Score
+O bot usa múltiplos modelos (ECMWF + GFS) para calcular confiança:
+- **Confidence alta** (>0.5): Usa EV normal (5%)
+- **Confidence média** (0.3-0.5): EV × 1.25
+- **Confidence baixa** (<0.3): EV × 1.5 (mais rigor)
+
+### Brier Score Calibration
+Mede a qualidade das previsões por cidade/fonte:
+- **Brier < 0.15**: 🟢 Excellent
+- **Brier 0.15-0.25**: 🟡 Good
+- **Brier 0.25-0.35**: 🟠 Fair
+- **Brier > 0.35**: 🔴 Poor
+
+### Alertas Telegram
+
+O bot envia alertas automáticos via Telegram:
+
+| Evento | Descrição |
+|--------|-----------|
+| 🤖 Bot Started | Quando o bot inicia |
+| 🎯 Novo Trade | Quando abre posição |
+| 📤 Trade Fechado | Quando posição fecha |
+| ✅ Trade Resolvido | Quando mercado resolve (WIN/LOSS) |
+
+Configurado automaticamente via OpenClaw.
+
 ### Gerenciamento de Risco
 - **Stop-loss**: 20% do valor apostado
 - **Trailing stop**: Move para breakeven quando lucra +20%
 - **Filtro de slippage**: Ignora mercados com spread > $0.03
+- **Confidence filter**: Aumenta EV quando modelos discordam
 
 ---
 
