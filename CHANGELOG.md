@@ -7,6 +7,11 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - 2026-03-22
 
 ### Added
+- **Auto-Reinvestment System (Conservative - 25%)**
+  - Automatically reinvests 25% of profits into next trades
+  - Configurable modes: off, conservative (25%), moderate (50%), aggressive (100%)
+  - Min/max balance limits for risk control
+  - `realized_profits` tracking in state
 - **Auto-Redemption System (Option B)**
   - Automated profit-taking based on configurable thresholds
   - Criteria:
@@ -16,10 +21,13 @@ All notable changes to this project will be documented in this file.
     - P&L < -20% → Stop Loss
   - Configurable min hold time (default: 6 hours)
   - Partial and full close support
+- **MEGA EDGE Alert**
+  - Telegram alert when EV > 50%
+  - 2.5x bet size boost for high-confidence opportunities
 
 ### Changed
-- **Auto-Redemption Config** - Added to bot_v2.py
-  - `AUTO_REDEMPTION` dictionary for easy configuration
+- **bet_size()** - Now supports auto-reinvestment parameter
+- **state.json** - Added `realized_profits` field
 
 ---
 

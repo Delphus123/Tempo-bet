@@ -216,6 +216,29 @@ AUTO_REDEMPTION = {
 }
 ```
 
+### Auto-Reinvestment (Conservative - 25%)
+
+Sistema de reinvestimento automático de lucros para fazer o capital compor:
+
+| Modo | Percentual | Descrição |
+|------|------------|-----------|
+| **Off** | 0% | Não reinveste |
+| **Conservative** | 25% | 25% dos lucros voltam a apostar |
+| **Moderate** | 50% | Metade dos lucros compõe |
+| **Aggressive** | 100% | Todo lucro é reapostado |
+
+**Importante:** O reinvestimento só funciona quando o saldo está acima do `min_balance` (default: $10,000).
+
+```python
+AUTO_REINVEST = {
+    "enabled": True,
+    "mode": "conservative",    # off, conservative, moderate, aggressive
+    "min_balance": 10000,       # Não reinveste abaixo deste valor
+    "max_balance": 50000,      # Limite máximo de exposição
+    "fraction": 0.25,          # 25% dos lucros são reinvestidos
+}
+```
+
 ---
 
 ## Armazenamento de Dados

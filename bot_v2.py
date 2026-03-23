@@ -66,6 +66,15 @@ AUTO_REDEMPTION = {
     "min_hold_hours": 6,       # Don't sell if < 6h old
 }
 
+# Auto-Reinvestment Config (Conservative - 25%)
+AUTO_REINVEST = {
+    "enabled": True,
+    "mode": "conservative",    # off, conservative (25%), moderate (50%), aggressive (100%)
+    "min_balance": 10000,       # Don't reinvest below this
+    "max_balance": 50000,      # Cap at this to limit exposure
+    "fraction": 0.25,          # 25% of profits reinvested
+}
+
 DATA_DIR         = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
 STATE_FILE       = DATA_DIR / "state.json"
@@ -138,8 +147,25 @@ def calc_kelly(p, price):
     f = (p * b - (1.0 - p)) / b
     return round(min(max(0.0, f) * KELLY_FRACTION, 1.0), 4)
 
-def bet_size(kelly, balance):
+def bet_size(kelly, balance, state=None):
+    """Calculate bet size with optional auto-reinvestment."""
+    # Base bet from Kelly
     raw = kelly * balance
+    
+    # Auto-reinvestment: add 25% of accumulated profits to bet size
+    if AUTO_REINVEST.get("enabled", False) and state:
+        reinvest_pool = state.get("realized_profits", 0.0)
+        min_bal = AUTO_REINVEST.get("min_balance", 10000)
+        max_bal = AUTO_REINVEST.get("max_balance", 50000)
+        fraction = AUTO_REINVEST.get("fraction", 0.25)
+        
+        # Only reinvest if above min_balance
+        if balance >= min_bal and reinvest_pool > 0:
+            # Add 25% of reinvestment pool to bet (capped at max_balance)
+            extra = min(reinvest_pool * fraction, max_bal - balance)
+            if extra > 0:
+                raw += extra
+    
     return round(min(raw, MAX_BET), 2)
 
 # =============================================================================
@@ -523,6 +549,7 @@ def load_state():
         "wins":             0,
         "losses":           0,
         "peak_balance":     BALANCE,
+        "realized_profits": 0.0,  # For auto-reinvestment tracking
     }
 
 def save_state(state):
@@ -795,7 +822,7 @@ def scan_and_update():
                         continue
 
                     kelly = calc_kelly(p, ask)
-                    size  = bet_size(kelly, balance)
+                    size  = bet_size(kelly, balance, state)
                     
                     # MEGA EDGE ALERT: If EV > 50%, this is a HUGE opportunity!
                     # Increase bet size and alert!
@@ -916,6 +943,11 @@ def scan_and_update():
 
         if won:
             state["wins"] += 1
+            # Track realized profits for auto-reinvestment
+            if AUTO_REINVEST.get("enabled", False):
+                profit = pnl
+                reinvest_amount = profit * AUTO_REINVEST.get("fraction", 0.25)
+                state["realized_profits"] = state.get("realized_profits", 0.0) + reinvest_amount
         else:
             state["losses"] += 1
 
