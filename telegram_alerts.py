@@ -150,6 +150,26 @@ def alert_daily_report(wins, losses, total_pnl, balance, start_balance):
 ⏰ {datetime.now().strftime('%H:%M:%S')}"""
     return send_telegram_message(text)
 
+def alert_mega_edge(city, date, bucket, ev, forecast_temp, price, size, source):
+    """Alert when EV > 50% - This is a HUGE opportunity!"""
+    text = f"""🔥 <b>MEGA EDGE ALERT!</b> 🔥
+
+📍 <b>Cidade:</b> {city}
+📅 <b>Data:</b> {date}
+🌡 <b>Bucket:</b> {bucket}
+🌡 <b>Forecast:</b> {forecast_temp}°C
+
+💰 <b>Valor:</b> ${size:.2f}
+📊 <b>EV:</b> {ev*100:.0f}% <b>(MEGA!)</b>
+💵 <b>Preço entrada:</b> ${price:.3f}
+
+⚡ <b>Fonte:</b> {source.upper()}
+
+🎯 <b>APOSTAR GRANDE!</b>
+
+💰 Potencial: ${size * (1/price - 1):.2f}"""
+    return send_telegram_message(text)
+
 if __name__ == "__main__":
     # Test
     print("Testing Telegram alerts...")
