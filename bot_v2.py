@@ -55,6 +55,17 @@ VC_KEY           = _cfg.get("vc_key", "")
 SIGMA_F = 2.0
 SIGMA_C = 1.2
 
+# Auto-Redemption Config (Option B)
+AUTO_REDEMPTION = {
+    "enabled": True,
+    "price_high": 0.99,        # Sell 100% if price > $0.99
+    "price_mid": 0.95,         # Sell 50% if price > $0.95 AND P&L > 50%
+    "pnl_threshold": 1.0,      # P&L > 100% triggers mid-level sell
+    "pnl_extreme": 5.0,        # P&L > 500% triggers 75% sell
+    "stop_loss": -0.20,        # Stop loss at -20%
+    "min_hold_hours": 6,       # Don't sell if < 6h old
+}
+
 DATA_DIR         = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
 STATE_FILE       = DATA_DIR / "state.json"
@@ -785,6 +796,28 @@ def scan_and_update():
 
                     kelly = calc_kelly(p, ask)
                     size  = bet_size(kelly, balance)
+                    
+                    # MEGA EDGE ALERT: If EV > 50%, this is a HUGE opportunity!
+                    # Increase bet size and alert!
+                    if ev >= 0.50:
+                        mega_edge = True
+                        size = min(size * 2.5, MAX_BET * 2)  # Up to 2.5x normal size, up to 2x max bet
+                        print(f"  [🔥 MEGA EDGE!] {loc['name']} {date} | EV: {ev:.0%} | Size: ${size:.2f}")
+                        if TELEGRAM_ENABLED:
+                            from telegram_alerts import alert_mega_edge
+                            alert_mega_edge(
+                                city=loc['name'],
+                                date=date,
+                                bucket=f"{t_low}-{t_high}{unit_sym}",
+                                ev=ev,
+                                forecast_temp=forecast_temp,
+                                price=bid,
+                                size=size,
+                                source=best_source or "ecmwf"
+                            )
+                    else:
+                        mega_edge = False
+                    
                     if size < 0.50:
                         continue
 
@@ -1088,6 +1121,67 @@ def print_report():
 
 MONITOR_INTERVAL = 600  # monitor positions every 10 minutes
 
+def check_auto_redemption(mkt, pos, current_price):
+    """Check if position should be auto-redeemed based on Option B criteria."""
+    if not AUTO_REDEMPTION.get("enabled", False):
+        return None
+    
+    entry = pos["entry_price"]
+    shares = pos["shares"]
+    cost = pos["cost"]
+    pnl_pct = (current_price - entry) / entry
+    
+    # Check min hold time
+    opened_str = pos.get("opened_at", "")
+    if opened_str:
+        try:
+            opened = datetime.fromisoformat(opened_str.replace("Z", "+00:00"))
+            hours_held = (datetime.now(timezone.utc) - opened).total_seconds() / 3600
+            if hours_held < AUTO_REDEMPTION["min_hold_hours"]:
+                return None  # Too new, skip
+        except:
+            pass
+    
+    city_name = LOCATIONS.get(mkt["city"], {}).get("name", mkt["city"])
+    
+    # Criterion 1: Price > $0.99 → Sell 100%
+    if current_price >= AUTO_REDEMPTION["price_high"]:
+        return {
+            "action": "sell_full",
+            "reason": f"AUTO: price ${current_price:.3f} > $0.99 (near certain win)",
+            "pct": 1.0,
+            "pnl_pct": pnl_pct * 100
+        }
+    
+    # Criterion 2: P&L > 500% → Sell 75%
+    if pnl_pct >= AUTO_REDEMPTION["pnl_extreme"]:
+        return {
+            "action": "sell_75",
+            "reason": f"AUTO: P&L {pnl_pct*100:.0f}% > 500%",
+            "pct": 0.75,
+            "pnl_pct": pnl_pct * 100
+        }
+    
+    # Criterion 3: Price > $0.95 AND P&L > 100% → Sell 50%
+    if current_price >= AUTO_REDEMPTION["price_mid"] and pnl_pct >= AUTO_REDEMPTION["pnl_threshold"]:
+        return {
+            "action": "sell_50",
+            "reason": f"AUTO: price ${current_price:.3f} > $0.95 AND P&L {pnl_pct*100:.0f}% > 100%",
+            "pct": 0.50,
+            "pnl_pct": pnl_pct * 100
+        }
+    
+    # Criterion 4: P&L < -20% → Stop loss
+    if pnl_pct <= AUTO_REDEMPTION["stop_loss"]:
+        return {
+            "action": "stop_loss",
+            "reason": f"AUTO: P&L {pnl_pct*100:.0f}% < -20%",
+            "pct": 1.0,
+            "pnl_pct": pnl_pct * 100
+        }
+    
+    return None
+
 def monitor_positions():
     """Quick stop check on open positions without full scan."""
     markets  = load_all_markets()
@@ -1136,6 +1230,40 @@ def monitor_positions():
             reason = "STOP" if current_price < entry else "TRAILING BE"
             city_name = LOCATIONS.get(mkt["city"], {}).get("name", mkt["city"])
             print(f"  [{reason}] {city_name} {mkt['date']} | entry ${entry:.3f} exit ${current_price:.3f} | PnL: {'+'if pnl>=0 else ''}{pnl:.2f}")
+            save_market(mkt)
+            continue
+        
+        # Auto-Redemption Check (Option B)
+        auto_action = check_auto_redemption(mkt, pos, current_price)
+        if auto_action:
+            city_name = LOCATIONS.get(mkt["city"], {}).get("name", mkt["city"])
+            sell_pct = auto_action["pct"]
+            sell_shares = int(pos["shares"] * sell_pct)
+            sell_value = round((current_price - entry) * sell_shares, 2)
+            
+            if auto_action["action"] == "sell_full" or auto_action["action"] == "stop_loss":
+                # Full close
+                balance += pos["cost"] + sell_value
+                pos["closed_at"]    = datetime.now(timezone.utc).isoformat()
+                pos["close_reason"] = auto_action["action"]
+                pos["exit_price"]   = current_price
+                pos["pnl"]          = sell_value
+                pos["status"]       = "closed"
+                closed += 1
+                print(f"  [AUTO-{auto_action['action'].upper()}] {city_name} {mkt['date']} | PnL: +{auto_action['pnl_pct']:.0f}% | {auto_action['reason']}")
+            else:
+                # Partial close
+                partial_cost = round(pos["cost"] * sell_pct, 2)
+                balance += partial_cost + sell_value
+                pos["cost"] = round(pos["cost"] * (1 - sell_pct), 2)
+                pos["shares"] = pos["shares"] - sell_shares
+                remaining_pnl = round((current_price - entry) * pos["shares"], 2)
+                print(f"  [AUTO-{auto_action['action'].upper()}] {city_name} {mkt['date']} | Sold {sell_pct*100:.0f}% @ ${current_price:.3f} | PnL locked: +{sell_value:.2f} | Remaining: {pos['shares']} shares")
+                
+                # Alert via Telegram if enabled
+                if TELEGRAM_ENABLED:
+                    alert_pnl_update(city_name, current_price, entry, remaining_pnl, auto_action["reason"])
+            
             save_market(mkt)
 
     if closed:

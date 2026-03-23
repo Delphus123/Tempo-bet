@@ -189,6 +189,32 @@ Configurado automaticamente via OpenClaw.
 - **Trailing stop**: Move para breakeven quando lucra +20%
 - **Filtro de slippage**: Ignora mercados com spread > $0.03
 - **Confidence filter**: Aumenta EV quando modelos discordam
+- **Auto-Redemption**: Trava lucros automaticamente
+
+### Auto-Redemption (Option B)
+
+Sistema de venda automática para proteger lucros:
+
+| Critério | Condição | Ação |
+|----------|----------|------|
+| **Price High** | Preço > $0.99 | Vender 100% |
+| **Extreme** | P&L > 500% | Vender 75% |
+| **Mid** | Preço > $0.95 E P&L > 100% | Vender 50% |
+| **Stop Loss** | P&L < -20% | Stop total |
+
+Configurável em `bot_v2.py`:
+
+```python
+AUTO_REDEMPTION = {
+    "enabled": True,
+    "price_high": 0.99,
+    "price_mid": 0.95,
+    "pnl_threshold": 1.0,
+    "pnl_extreme": 5.0,
+    "stop_loss": -0.20,
+    "min_hold_hours": 6,
+}
+```
 
 ---
 

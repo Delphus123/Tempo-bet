@@ -4,7 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [Unreleased] - 2026-03-21
+## [Unreleased] - 2026-03-22
+
+### Added
+- **Auto-Redemption System (Option B)**
+  - Automated profit-taking based on configurable thresholds
+  - Criteria:
+    - Price > $0.99 → Sell 100%
+    - P&L > 500% → Sell 75%
+    - Price > $0.95 AND P&L > 100% → Sell 50%
+    - P&L < -20% → Stop Loss
+  - Configurable min hold time (default: 6 hours)
+  - Partial and full close support
+
+### Changed
+- **Auto-Redemption Config** - Added to bot_v2.py
+  - `AUTO_REDEMPTION` dictionary for easy configuration
+
+---
+
+## [1.1] - 2026-03-21
 
 ### Added
 - **Model Ensemble + Confidence Score**
@@ -21,6 +40,8 @@ All notable changes to this project will be documented in this file.
   - `telegram_alerts.py` - Alert system
   - Alerts for: Bot start, New trade, Trade closed, Trade resolved
   - Real-time notifications via Telegram Bot
+- **GitHub Security Audit Module**
+  - `github_security_audit.py` - Analyzes repos before clone/pull
 
 ### Changed
 - **EV Threshold** - Dynamically adjusted by confidence
