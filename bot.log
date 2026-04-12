@@ -9,7 +9,7 @@
   Data:       /home/hal9000/Projects/Tempo-bet/data
   Ctrl+C to stop
 
-[2026-04-12 16:42:53] full scan (interval: 30min)...
+[2026-04-12 16:54:25] full scan (interval: 30min)...
   -> New York City... [BLOCKED] skipped
   -> Chicago... [BLOCKED] skipped
   -> Miami... [BLOCKED] skipped
@@ -17,50 +17,19 @@
   -> Seattle... [BLOCKED] skipped
   -> Atlanta... [BLOCKED] skipped
   -> London... ok
-  -> Paris...   Error: 'sigma' — waiting 60 sec
-[2026-04-12 16:44:02] full scan (interval: 30min)...
-  -> New York City... [BLOCKED] skipped
-  -> Chicago... [BLOCKED] skipped
-  -> Miami... [BLOCKED] skipped
-  -> Dallas... [BLOCKED] skipped
-  -> Seattle... [BLOCKED] skipped
-  -> Atlanta... [BLOCKED] skipped
-  -> London... ok
-  -> Paris...   Error: 'sigma' — waiting 60 sec
-[2026-04-12 16:45:11] full scan (interval: 30min)...
-  -> New York City... [BLOCKED] skipped
-  -> Chicago... [BLOCKED] skipped
-  -> Miami... [BLOCKED] skipped
-  -> Dallas... [BLOCKED] skipped
-  -> Seattle... [BLOCKED] skipped
-  -> Atlanta... [BLOCKED] skipped
-  -> London... ok
-  -> Paris...   Error: 'sigma' — waiting 60 sec
-[2026-04-12 16:46:21] full scan (interval: 30min)...
-  -> New York City... [BLOCKED] skipped
-  -> Chicago... [BLOCKED] skipped
-  -> Miami... [BLOCKED] skipped
-  -> Dallas... [BLOCKED] skipped
-  -> Seattle... [BLOCKED] skipped
-  -> Atlanta... [BLOCKED] skipped
-  -> London...   [MODEL_ENSEMBLE] london: HTTPSConnectionPool(host='api.open-meteo.com', port=443): Read timed out. (read timeout=5)
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-13: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
 ok
-  -> Paris...   Error: 'sigma' — waiting 60 sec
-[2026-04-12 16:47:35] full scan (interval: 30min)...
-  -> New York City... [BLOCKED] skipped
-  -> Chicago... [BLOCKED] skipped
-  -> Miami... [BLOCKED] skipped
-  -> Dallas... [BLOCKED] skipped
-  -> Seattle... [BLOCKED] skipped
-  -> Atlanta... [BLOCKED] skipped
-  -> London... ok
-  -> Paris...   Error: 'sigma' — waiting 60 sec
-[2026-04-12 16:48:44] full scan (interval: 30min)...
-  -> New York City... [BLOCKED] skipped
-  -> Chicago... [BLOCKED] skipped
-  -> Miami... [BLOCKED] skipped
-  -> Dallas... [BLOCKED] skipped
-  -> Seattle... [BLOCKED] skipped
-  -> Atlanta... [BLOCKED] skipped
-  -> London... ok
-  -> Paris... 
+  -> Tokyo... ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto...   [ECMWF] toronto: HTTPSConnectionPool(host='api.open-meteo.com', port=443): Read timed out. (read timeout=5)
+ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... 

@@ -22,7 +22,10 @@ async function fetchPolymarketPrice(marketId) {
     const r = await fetch(`https://gamma-api.polymarket.com/markets/${marketId}`);
     if (r.ok) {
       const data = await r.json();
-      const price = parseFloat(data.outcomePrices?.[0] || data.bestBid || 0);
+      const raw = data.outcomePrices;
+      let prices = raw;
+      if (typeof raw === 'string') { try { prices = JSON.parse(raw); } catch { prices = []; } }
+      const price = parseFloat(prices?.[0] || data.bestBid || 0);
       priceCache[marketId] = price;
       lastPriceFetch = Date.now();
       return price;
