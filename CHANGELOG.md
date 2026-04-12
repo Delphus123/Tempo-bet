@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.1] - 2026-04-12
+
+### Added
+- **Edge Bucket Fallback** — bot now tries edge buckets (≤X or ≥X) when no exact bucket qualifies
+  - Uses normal CDF for continuous probability estimation (much better than binary 0/1)
+  - Relaxed filters: max spread 10% (vs 3%), max price $0.75 (vs $0.65), min EV 5% (vs 10%)
+  - Conservative sizing: 60% of normal bet size
+  - Wider stop-loss: -25% (vs -15%) and min hold 6h (vs 4h)
+  - Marked with `bucket_type: "edge"` in position dict
+- Added `bucket_type: "exact"` to existing exact bucket positions for clarity
+
 ---
 
 ## [3.0] - 2026-04-12

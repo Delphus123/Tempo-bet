@@ -886,6 +886,105 @@ def take_forecast_snapshot(city_slug, dates):
         snapshots[date] = snap
     return snapshots
 
+def find_edge_signal(outcomes, forecast_temp, source, sigma, confidence, balance, state, unit_sym, city_name, date, snap):
+    """Try edge buckets (≤X or ≥X) as fallback when no exact bucket qualifies."""
+    candidates = []
+
+    for o in outcomes:
+        t_low, t_high = o["range"]
+
+        # Only consider edge buckets
+        if t_low != -999 and t_high != 999:
+            continue
+
+        bid = o.get("bid", o["price"])
+        spread = o.get("spread", 0)
+        volume = o.get("volume", 0)
+
+        if spread > 0.10:
+            continue
+        if bid >= 0.75:
+            continue
+        if volume < 2000:
+            continue
+
+        p = bucket_prob(forecast_temp, t_low, t_high, sigma)
+
+        if abs(p - bid) < 0.05:
+            continue
+
+        ev = calc_ev(p, bid)
+
+        min_ev_edge = 0.05
+        if confidence is not None and confidence < 0.5:
+            min_ev_edge = 0.08
+
+        if ev < min_ev_edge:
+            continue
+
+        kelly = calc_kelly(p, bid, confidence)
+        size = bet_size(kelly, balance, state, confidence) * 0.6
+
+        if size < 1.00:
+            continue
+
+        candidates.append({
+            "signal": {
+                "market_id": o["market_id"],
+                "question": o["question"],
+                "bucket_low": t_low,
+                "bucket_high": t_high,
+                "entry_price": bid,
+                "bid_at_entry": bid,
+                "yes_price_at_entry": o.get("yes_price", bid),
+                "spread": spread,
+                "shares": round(size / bid, 2),
+                "cost": size,
+                "p": round(p, 4),
+                "ev": round(ev, 4),
+                "kelly": round(kelly, 4),
+                "forecast_temp": forecast_temp,
+                "forecast_src": source,
+                "sigma": sigma,
+                "gfs_confidence": confidence,
+                "trade_reason": f"edge_bucket_{'below' if t_low == -999 else 'above'}",
+                "bug_status": "after-bug",
+                "opened_at": snap.get("ts"),
+                "status": "open",
+                "pnl": None,
+                "exit_price": None,
+                "close_reason": None,
+                "closed_at": None,
+                "bucket_type": "edge",
+            },
+            "ev": ev,
+        })
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda x: x["ev"], reverse=True)
+    best = candidates[0]
+    sig = best["signal"]
+    bucket_label = f"{'≤' if sig['bucket_low'] == -999 else '≥'}{sig['bucket_high'] if sig['bucket_low'] == -999 else sig['bucket_low']}{unit_sym}"
+    print(f"  [EDGE] {city_name} {date} | {bucket_label} | "
+          f"${sig['entry_price']:.3f} | p={sig['p']:.2f} | EV {sig['ev']:+.2f} | "
+          f"${sig['cost']:.2f} ({source})")
+
+    if TELEGRAM_ENABLED:
+        alert_new_trade(
+            city=city_name,
+            date=date,
+            bucket=bucket_label,
+            price=sig['entry_price'],
+            ev=sig['ev'],
+            cost=sig['cost'],
+            source=source
+        )
+
+    return best["signal"]
+
+
 def scan_and_update():
     """Main function of one cycle: updates forecasts, opens/closes positions."""
     global _cal
@@ -1217,8 +1316,16 @@ def scan_and_update():
                         "exit_price":   None,
                         "close_reason": None,
                         "closed_at":    None,
+                        "bucket_type":  "exact",
                     }
                     break
+
+                # --- EDGE BUCKET FALLBACK ---
+                if not best_signal:
+                    best_signal = find_edge_signal(
+                        outcomes, forecast_temp, best_source, sigma, confidence,
+                        balance, state, unit_sym, loc['name'], date, snap
+                    )
 
                 if best_signal:
                     balance -= best_signal["cost"]
@@ -1539,12 +1646,14 @@ def check_auto_redemption(mkt, pos, current_price, hours_left=None):
     pnl_pct = (current_price - entry) / entry
     
     # Check min hold time
+    bucket_type = pos.get("bucket_type", "exact")
+    min_hold = 6 if bucket_type == "edge" else AUTO_REDEMPTION["min_hold_hours"]
     opened_str = pos.get("opened_at", "")
     if opened_str:
         try:
             opened = datetime.fromisoformat(opened_str.replace("Z", "+00:00"))
             hours_held = (datetime.now(timezone.utc) - opened).total_seconds() / 3600
-            if hours_held < AUTO_REDEMPTION["min_hold_hours"]:
+            if hours_held < min_hold:
                 return None  # Too new, skip
         except:
             pass
@@ -1558,6 +1667,8 @@ def check_auto_redemption(mkt, pos, current_price, hours_left=None):
         city_slug = mkt.get("city", "")
         city_thresh = CITY_THRESHOLDS.get(city_slug, {})
         effective_stop = city_thresh.get("stop_loss", AUTO_REDEMPTION["stop_loss"])
+        if bucket_type == "edge":
+            effective_stop = -0.25  # Wider stop for edge buckets
         
         # Criterion 4: P&L < stop threshold → Stop loss
         if pnl_pct <= effective_stop:
