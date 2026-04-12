@@ -54,11 +54,12 @@ function SummaryCard({ title, value, prefix = '', suffix = '', color = 'text-pri
 
 function OpenPositionCard({ market }) {
   const pos = market.position || {};
-  const isProfit = pos.currentPrice !== undefined && pos.currentPrice > pos.entry_price;
-  const isLoss = pos.currentPrice !== undefined && pos.currentPrice < pos.entry_price;
+  const hasPrice = pos.currentPrice != null && pos.currentPrice !== '';
+  const isProfit = hasPrice && pos.currentPrice > pos.entry_price;
+  const isLoss = hasPrice && pos.currentPrice < pos.entry_price;
   const borderClass = isProfit ? 'border-success/40' : isLoss ? 'border-red-500/40' : 'border-border';
-  const unrealizedPnl = pos.currentPrice !== undefined ? (pos.currentPrice - pos.entry_price) * (pos.shares || 0) : null;
-  const winProb = pos.currentPrice !== undefined ? (pos.currentPrice * 100).toFixed(1) : '—';
+  const unrealizedPnl = hasPrice ? (pos.currentPrice - pos.entry_price) * (pos.shares || 0) : null;
+  const winProb = hasPrice ? (pos.currentPrice * 100).toFixed(1) : '—';
 
   return (
     <div className={`bg-card border ${borderClass} rounded-xl p-4 card-glow transition-all animate-fade-in`}>
@@ -199,8 +200,9 @@ export default function App() {
   const { data: state } = useFetch('/state');
   const { data: perf } = useFetch('/performance');
   const { data: marketsData } = useFetch('/markets', 60000);
+  const { data: openPosData } = useFetch('/open-positions', 60000);
   const markets = marketsData?.markets || [];
-  const openMarkets = markets.filter(m => m.position && m.position.status === 'open');
+  const openMarkets = (openPosData?.markets || markets.filter(m => m.position && m.position.status === 'open'));
 
   if (!state) return <div className="flex items-center justify-center h-screen text-primary text-xl">Loading...</div>;
 

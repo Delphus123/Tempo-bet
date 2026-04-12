@@ -32,4 +32,117 @@ ok
 ok
   -> Sao Paulo... ok
   -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $17,587.39 | new: 0 | closed: 0 | resolved: 0
+[2026-04-12 17:05:26] monitoring positions...
+[2026-04-12 17:15:26] monitoring positions...
+[2026-04-12 17:25:26] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-13: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+ok
+  -> Tokyo... ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto...   [LOW CONF] Toronto 2026-04-13: conf=0.48, min_ev=0.15
+ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington...   [MODEL_ENSEMBLE] wellington: HTTPSConnectionPool(host='api.open-meteo.com', port=443): Read timed out. (read timeout=5)
+ok
+  balance: $17,587.39 | new: 0 | closed: 0 | resolved: 0
+[2026-04-12 17:36:21] monitoring positions...
+[2026-04-12 17:46:21] monitoring positions...
+[2026-04-12 17:56:22] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-13: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+ok
+  -> Tokyo... ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto...   [LOW CONF] Toronto 2026-04-13: conf=0.48, min_ev=0.15
+ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  [WIN] Lucknow 2026-04-12 | PnL: +51.01
+  balance: $17,688.40 | new: 0 | closed: 0 | resolved: 1
+[2026-04-12 18:07:16] monitoring positions...
+[2026-04-12 18:17:16] monitoring positions...
+[2026-04-12 18:27:17] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-13: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+ok
+  -> Tokyo... ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto...   [LOW CONF] Toronto 2026-04-13: conf=0.48, min_ev=0.15
+ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $17,688.40 | new: 0 | closed: 0 | resolved: 0
+[2026-04-12 18:38:11] monitoring positions...
+[2026-04-12 18:48:11] monitoring positions...
+[2026-04-12 18:58:11] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-13: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+ok
+  -> Tokyo...   [🔥 MEGA EDGE!] Tokyo 2026-04-13 | EV: 94% | Size: $50.00
+  [BUY]  Tokyo D+1 2026-04-13 | 22.0-22.0C | $0.485 | EV +0.94 | $50.00 (ECMWF) [mega_edge]
+ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto...   [LOW CONF] Toronto 2026-04-13: conf=0.48, min_ev=0.15
+ok
+  -> Sao Paulo... ok
+  -> Buenos Aires...   [MODEL_ENSEMBLE] buenos-aires: HTTPSConnectionPool(host='api.open-meteo.com', port=443): Read timed out. (read timeout=5)
+ok
   -> Wellington... 
