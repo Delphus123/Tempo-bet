@@ -243,7 +243,7 @@ def load_cal():
 
 def get_sigma(city_slug, source="ecmwf"):
     key = f"{city_slug}_{source}"
-    if key in _cal:
+    if key in _cal and "sigma" in _cal[key]:
         return _cal[key]["sigma"]
     return SIGMA_F if LOCATIONS[city_slug]["unit"] == "F" else SIGMA_C
 
