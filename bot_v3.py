@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-bot_v2.py — Weather Trading Bot for Polymarket
+bot_v3.0.py — Weather Trading Bot for Polymarket
 =====================================================
 Tracks weather forecasts from 3 sources (ECMWF, HRRR, METAR),
 compares with Polymarket markets, paper trades using Kelly criterion.
 
+v3.0: 12 improvements — weighted ensemble, variable Kelly, adaptive scan,
+      dynamic blocking, METAR bias correction, Brier-optimized sigma, and more.
+
 Usage:
-    python bot_v2.py          # main loop
-    python bot_v2.py report   # full report
-    python bot_v2.py status   # balance and open positions
+    python bot_v3.py          # main loop
+    python bot_v3.py report   # full report
+    python bot_v3.py status   # balance and open positions
 """
 
 import re
@@ -51,6 +54,9 @@ MAX_SLIPPAGE     = _cfg.get("max_slippage", 0.03)  # max allowed ask-bid spread
 SCAN_INTERVAL    = _cfg.get("scan_interval", 1800)     # every 30 min
 CALIBRATION_MIN  = _cfg.get("calibration_min", 30)
 VC_KEY           = _cfg.get("vc_key", "")
+FAST_SCAN_INTERVAL = _cfg.get("fast_scan_interval", 900)   # 15 min (#8)
+SLOW_SCAN_INTERVAL = _cfg.get("slow_scan_interval", 1800)  # 30 min (#8)
+ADAPTIVE_SCAN    = _cfg.get("adaptive_scan", True)          # (#8)
 
 SIGMA_F = 2.0
 SIGMA_C = 1.2
@@ -81,7 +87,7 @@ ALLOWED_CITIES = [
     "wellington",  # Unknown
 ]
 
-# Blocked cities (poor accuracy historically)
+# Blocked cities (poor accuracy historically) — can be overridden dynamically (#12)
 BLOCKED_CITIES = [
     "ankara",      # 0/1 loss
     "atlanta",     # 0/1 loss
@@ -93,6 +99,13 @@ BLOCKED_CITIES = [
     "dallas",      # Unknown
     "shanghai",    # Unknown
 ]
+
+# Dynamic blocked cities (#12) — populated at runtime
+DYNAMIC_BLOCKED_CITIES = set()
+
+# City-specific auto-redemption thresholds (#6)
+CITY_THRESHOLDS = {}
+# Populated dynamically in scan_and_update based on historical sigma
 
 # Auto-Reinvestment Config (Conservative - 25%)
 AUTO_REINVEST = {
@@ -130,7 +143,7 @@ LOCATIONS = {
     "toronto":      {"lat": 43.6772,  "lon":  -79.6306, "name": "Toronto",       "station": "CYYZ", "unit": "C", "region": "ca"},
     "sao-paulo":    {"lat": -23.4356, "lon":  -46.4731, "name": "Sao Paulo",     "station": "SBGR", "unit": "C", "region": "sa"},
     "buenos-aires": {"lat": -34.8222, "lon":  -58.5358, "name": "Buenos Aires",  "station": "SAEZ", "unit": "C", "region": "sa"},
-    "wellington":   {"lat": -41.3272, "lon":  174.8052, "name": "Wellington",    "station": "NZWN", "unit": "C", "region": "oc"},
+    "wellington":   {"lat": -41.3272,  "lon": 174.8052, "name": "Wellington",    "station": "NZWN", "unit": "C", "region": "oc"},
 }
 
 TIMEZONES = {
@@ -169,16 +182,38 @@ def calc_ev(p, price):
     if price <= 0 or price >= 1: return 0.0
     return round(p * (1.0 / price - 1.0) - (1.0 - p), 4)
 
-def calc_kelly(p, price):
+def calc_kelly(p, price, confidence=None):
+    """Kelly criterion with variable fraction based on confidence (#4)."""
     if price <= 0 or price >= 1: return 0.0
     b = 1.0 / price - 1.0
     f = (p * b - (1.0 - p)) / b
-    return round(min(max(0.0, f) * KELLY_FRACTION, 1.0), 4)
+    
+    # Variable Kelly fraction based on GFS confidence (#4)
+    if confidence is not None:
+        if confidence > 0.7:
+            kelly_frac = 0.50   # High confidence → 50%
+        elif confidence >= 0.4:
+            kelly_frac = 0.30   # Medium confidence → 30%
+        else:
+            kelly_frac = 0.15   # Low confidence → 15%
+    else:
+        kelly_frac = KELLY_FRACTION  # Default 25%
+    
+    return round(min(max(0.0, f) * kelly_frac, 1.0), 4)
 
-def bet_size(kelly, balance, state=None):
-    """Calculate bet size with optional auto-reinvestment."""
+def bet_size(kelly, balance, state=None, confidence=None):
+    """Calculate bet size with optional auto-reinvestment and confidence scaling (#9)."""
     # Base bet from Kelly
     raw = kelly * balance
+    
+    # Confidence scaling (#9)
+    if confidence is not None:
+        if confidence < 0.3:
+            raw *= 0.25
+        elif confidence < 0.5:
+            raw *= 0.5
+        elif confidence > 0.8:
+            raw *= 1.25
     
     # Auto-reinvestment: add 25% of accumulated profits to bet size
     if AUTO_REINVEST.get("enabled", False) and state:
@@ -189,7 +224,6 @@ def bet_size(kelly, balance, state=None):
         
         # Only reinvest if above min_balance
         if balance >= min_bal and reinvest_pool > 0:
-            # Add 25% of reinvestment pool to bet (capped at max_balance)
             extra = min(reinvest_pool * fraction, max_bal - balance)
             if extra > 0:
                 raw += extra
@@ -223,8 +257,12 @@ def get_brier_score(city_slug, source="ecmwf"):
 def run_calibration(markets):
     """
     Recalculates sigma and Brier Score from resolved markets.
-    Brier Score = mean((predicted_prob - actual)²)
-    Lower is better (0 = perfect, 1 = worst)
+    
+    v3.0 (#2): Brier Score adjusted by price impact:
+        brier = ((p * price) - actual_outcome)²
+    
+    v3.0 (#7): Sigma optimized via grid search to minimize Brier score
+        instead of sigma = MAE.
     """
     resolved = [m for m in markets if m.get("resolved") and m.get("actual_temp") is not None]
     cal = load_cal()
@@ -233,8 +271,8 @@ def run_calibration(markets):
     for source in ["ecmwf", "hrrr", "metar"]:
         for city in set(m["city"] for m in resolved):
             group = [m for m in resolved if m["city"] == city]
-            errors = []
             brier_scores = []
+            forecast_actual_pairs = []  # (forecast_temp, actual_temp) for sigma grid search
             
             for m in group:
                 # Find forecast snapshot for this source
@@ -249,41 +287,82 @@ def run_calibration(markets):
                     
                 forecast_temp = snap["best"]
                 actual_temp = m["actual_temp"]
+                forecast_actual_pairs.append((forecast_temp, actual_temp))
                 
-                # Calculate temperature error
-                errors.append(abs(forecast_temp - actual_temp))
-                
-                # Calculate Brier Score for this prediction
-                # We predicted a bucket - check if actual temp was in bucket
+                # Calculate Brier Score with price impact adjustment (#2)
                 if m.get("position"):
-                    predicted_prob = m["position"].get("p", 0.5)  # Our assigned probability
-                    # Actual outcome: 1 if we won, 0 if we lost
+                    predicted_prob = m["position"].get("p", 0.5)
+                    entry_price = m["position"].get("entry_price", 0.5)
                     actual_outcome = 1 if m["resolved_outcome"] == "win" else 0
-                    brier = (predicted_prob - actual_outcome) ** 2
+                    # Price-adjusted Brier (#2): brier = ((p * price) - actual)²
+                    brier = ((predicted_prob * entry_price) - actual_outcome) ** 2
                     brier_scores.append(brier)
             
-            if len(errors) < CALIBRATION_MIN:
+            if len(forecast_actual_pairs) < CALIBRATION_MIN:
                 continue
-                
-            mae = sum(errors) / len(errors)
+            
+            # Grid search for optimal sigma (#7)
+            best_sigma = None
+            best_brier_sigma = float('inf')
+            
+            # Build bucket info from positions for sigma optimization
+            bucket_pairs = []
+            for m in group:
+                pos = m.get("position")
+                if not pos:
+                    continue
+                snap = None
+                for s in reversed(m.get("forecast_snapshots", [])):
+                    if s.get("best_source") == source or source in s.get("best_source", ""):
+                        snap = s
+                        break
+                if snap and snap.get("best") is not None:
+                    bucket_pairs.append({
+                        "forecast": snap["best"],
+                        "actual": m["actual_temp"],
+                        "t_low": pos.get("bucket_low", -999),
+                        "t_high": pos.get("bucket_high", 999),
+                        "won": m.get("resolved_outcome") == "win"
+                    })
+            
+            if bucket_pairs:
+                for sigma_try in [round(s * 0.1, 1) for s in range(5, 51)]:  # 0.5 to 5.0
+                    brier_sum = 0.0
+                    count = 0
+                    for bp in bucket_pairs:
+                        p = bucket_prob(bp["forecast"], bp["t_low"], bp["t_high"], sigma_try)
+                        actual = 1.0 if bp["won"] else 0.0
+                        entry_p = bp.get("entry_price", 0.5)
+                        brier_sum += ((p * entry_p) - actual) ** 2
+                        count += 1
+                    if count > 0:
+                        avg_brier = brier_sum / count
+                        if avg_brier < best_brier_sigma:
+                            best_brier_sigma = avg_brier
+                            best_sigma = sigma_try
+            
+            # Fallback: use MAE if grid search didn't find anything
+            if best_sigma is None:
+                errors = [abs(f - a) for f, a in forecast_actual_pairs]
+                best_sigma = round(sum(errors) / len(errors), 3)
+            
             brier_score = sum(brier_scores) / len(brier_scores) if brier_scores else 0.5
             
             key = f"{city}_{source}"
             old = cal.get(key, {}).get("sigma", SIGMA_F if LOCATIONS[city]["unit"] == "F" else SIGMA_C)
-            new = round(mae, 3)
             old_brier = cal.get(key, {}).get("brier_score", 0.25)
             new_brier = round(brier_score, 4)
             
             cal[key] = {
-                "sigma": new, 
-                "n": len(errors), 
+                "sigma": round(best_sigma, 3), 
+                "n": len(forecast_actual_pairs), 
                 "brier_score": new_brier,
                 "brier_n": len(brier_scores),
                 "updated_at": datetime.now(timezone.utc).isoformat()
             }
             
-            if abs(new - old) > 0.05:
-                updated.append(f"{LOCATIONS[city]['name']} {source}: σ {old:.2f}->{new:.2f}")
+            if abs(best_sigma - old) > 0.05:
+                updated.append(f"{LOCATIONS[city]['name']} {source}: σ {old:.2f}->{best_sigma:.2f}")
             if abs(new_brier - old_brier) > 0.02:
                 updated.append(f"{LOCATIONS[city]['name']} {source}: Brier {old_brier:.3f}->{new_brier:.3f}")
 
@@ -464,6 +543,101 @@ def check_market_resolved(market_id):
     return None
 
 # =============================================================================
+# WEIGHTED ENSEMBLE FORECAST (#5)
+# =============================================================================
+
+def get_weighted_forecast(city_slug, date, snap):
+    """
+    Weighted ensemble forecast based on historical Brier score per source (#5).
+    Instead of picking HRRR or ECMWF, use weighted average.
+    Weight formula: w = 1 / (brier + 0.01), normalized.
+    """
+    sources_temps = {}
+    if snap.get("ecmwf") is not None:
+        sources_temps["ecmwf"] = snap["ecmwf"]
+    if snap.get("hrrr") is not None:
+        sources_temps["hrrr"] = snap["hrrr"]
+    
+    if not sources_temps:
+        return None, None
+    
+    if len(sources_temps) == 1:
+        src = list(sources_temps.keys())[0]
+        return sources_temps[src], src
+    
+    # Calculate weights from Brier scores
+    weights = {}
+    for src in sources_temps:
+        brier = get_brier_score(city_slug, src)
+        weights[src] = 1.0 / (brier + 0.01)
+    
+    total_w = sum(weights.values())
+    weighted_temp = sum(sources_temps[src] * weights[src] for src in sources_temps) / total_w
+    
+    loc = LOCATIONS[city_slug]
+    weighted_temp = round(weighted_temp, 1) if loc["unit"] == "C" else round(weighted_temp)
+    
+    # Best source is the one with highest weight
+    best_src = max(weights, key=weights.get)
+    
+    return weighted_temp, f"ensemble({','.join(sources_temps.keys())})"
+
+# =============================================================================
+# METAR BIAS CORRECTION (#11)
+# =============================================================================
+
+def calc_forecast_bias(city_slug):
+    """
+    Compare METAR observations with ECMWF/HRRR forecasts to detect systematic bias (#11).
+    Returns bias dict: {"ecmwf": bias_val, "hrrr": bias_val}
+    Bias = mean(forecast - actual)
+    """
+    cal = load_cal()
+    bias = {}
+    
+    for source in ["ecmwf", "hrrr"]:
+        key = f"{city_slug}_{source}"
+        if key in cal and cal[key].get("bias") is not None:
+            bias[source] = cal[key]["bias"]
+    
+    return bias
+
+def apply_bias_correction(forecast, city_slug, source):
+    """Apply METAR-based bias correction (#11)."""
+    cal = load_cal()
+    key = f"{city_slug}_{source}"
+    if key in cal and cal[key].get("bias") is not None:
+        return round(forecast - cal[key]["bias"], 1)
+    return forecast
+
+def update_forecast_bias(city_slug):
+    """
+    Calculate and store forecast bias by comparing recent METAR vs forecasts (#11).
+    Called during scan cycles.
+    """
+    markets = load_all_markets()
+    cal = load_cal()
+    
+    for source in ["ecmwf", "hrrr"]:
+        diffs = []
+        for m in markets:
+            if m.get("city") != city_slug or not m.get("actual_temp"):
+                continue
+            for snap in m.get("forecast_snapshots", []):
+                if snap.get(source) is not None and m.get("actual_temp") is not None:
+                    diffs.append(snap[source] - m["actual_temp"])
+        
+        if len(diffs) >= 5:  # Need at least 5 comparisons
+            bias = round(sum(diffs) / len(diffs), 3)
+            key = f"{city_slug}_{source}"
+            if key not in cal:
+                cal[key] = {}
+            cal[key]["bias"] = bias
+            cal[key]["bias_n"] = len(diffs)
+    
+    CALIBRATION_FILE.write_text(json.dumps(cal, indent=2), encoding="utf-8")
+
+# =============================================================================
 # POLYMARKET
 # =============================================================================
 
@@ -584,6 +758,84 @@ def save_state(state):
     STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
 # =============================================================================
+# DYNAMIC BLOCKED CITIES (#12)
+# =============================================================================
+
+def update_dynamic_blocked_cities():
+    """
+    Dynamically block/unblock cities based on Brier scores (#12).
+    - Block if Brier > 0.35 after 5+ resolved markets
+    - Unblock if Brier improves to < 0.25
+    """
+    global DYNAMIC_BLOCKED_CITIES
+    cal = load_cal()
+    markets = load_all_markets()
+    
+    # Count resolved markets per city
+    city_resolved = {}
+    for m in markets:
+        if m.get("status") == "resolved":
+            city_resolved[m["city"]] = city_resolved.get(m["city"], 0) + 1
+    
+    for city in LOCATIONS:
+        if city_resolved.get(city, 0) < 5:
+            continue
+        
+        # Get average Brier score across sources
+        brier_vals = []
+        for source in ["ecmwf", "hrrr"]:
+            brier = get_brier_score(city, source)
+            if brier != 0.25:  # Has actual data
+                brier_vals.append(brier)
+        
+        if not brier_vals:
+            continue
+        
+        avg_brier = sum(brier_vals) / len(brier_vals)
+        
+        if avg_brier > 0.35:
+            DYNAMIC_BLOCKED_CITIES.add(city)
+        elif avg_brier < 0.25 and city in DYNAMIC_BLOCKED_CITIES:
+            DYNAMIC_BLOCKED_CITIES.discard(city)
+
+# =============================================================================
+# CITY-SPECIFIC THRESHOLDS (#6)
+# =============================================================================
+
+def update_city_thresholds():
+    """
+    Build city-specific auto-redemption thresholds based on historical sigma (#6).
+    Formula: stop_loss = base_stop * (1 + sigma/2)
+    """
+    global CITY_THRESHOLDS
+    cal = load_cal()
+    
+    base_stop = AUTO_REDEMPTION["stop_loss"]
+    
+    for city in LOCATIONS:
+        # Get average sigma across sources
+        sigmas = []
+        for source in ["ecmwf", "hrrr"]:
+            key = f"{city}_{source}"
+            if key in cal and "sigma" in cal[key]:
+                sigmas.append(cal[key]["sigma"])
+        
+        if sigmas:
+            avg_sigma = sum(sigmas) / len(sigmas)
+        else:
+            avg_sigma = SIGMA_F if LOCATIONS[city]["unit"] == "F" else SIGMA_C
+        
+        # Wider stops for more volatile cities
+        city_stop = base_stop * (1 + avg_sigma / 2)
+        city_stop = max(city_stop, -0.35)  # Cap at -35%
+        
+        CITY_THRESHOLDS[city] = {
+            "stop_loss": round(city_stop, 3),
+            "trailing_pct": 0.50,  # Keep trailing same for now
+            "sigma": round(avg_sigma, 3),
+        }
+
+# =============================================================================
 # CORE LOGIC
 # =============================================================================
 
@@ -609,17 +861,28 @@ def take_forecast_snapshot(city_slug, dates):
             "gfs_confidence": gfs_data.get("confidence") if gfs_data else None,
             "gfs_members": gfs_data.get("members") if gfs_data else 0,
         }
-        # Best forecast: HRRR for US D+0/D+1, otherwise ECMWF
-        loc = LOCATIONS[city_slug]
-        if loc["region"] == "us" and snap["hrrr"] is not None:
-            snap["best"] = snap["hrrr"]
-            snap["best_source"] = "hrrr"
+        
+        # Apply METAR bias correction (#11)
+        if snap["ecmwf"] is not None:
+            snap["ecmwf_raw"] = snap["ecmwf"]
+            snap["ecmwf"] = apply_bias_correction(snap["ecmwf"], city_slug, "ecmwf")
+        if snap["hrrr"] is not None:
+            snap["hrrr_raw"] = snap["hrrr"]
+            snap["hrrr"] = apply_bias_correction(snap["hrrr"], city_slug, "hrrr")
+        
+        # Weighted ensemble forecast (#5)
+        weighted_temp, weighted_src = get_weighted_forecast(city_slug, date, snap)
+        
+        if weighted_temp is not None:
+            snap["best"] = weighted_temp
+            snap["best_source"] = weighted_src
         elif snap["ecmwf"] is not None:
             snap["best"] = snap["ecmwf"]
             snap["best_source"] = "ecmwf"
         else:
             snap["best"] = None
             snap["best_source"] = None
+        
         snapshots[date] = snap
     return snapshots
 
@@ -633,15 +896,30 @@ def scan_and_update():
     closed   = 0
     resolved = 0
 
+    # Dynamic blocked cities (#12)
+    update_dynamic_blocked_cities()
+    # City-specific thresholds (#6)
+    update_city_thresholds()
+
     for city_slug, loc in LOCATIONS.items():
-        # City filter - skip blocked cities
-        if city_slug in BLOCKED_CITIES:
-            print(f"  -> {loc['name']}... [BLOCKED] skipped")
+        # City filter - skip blocked + dynamically blocked cities
+        is_blocked = city_slug in BLOCKED_CITIES or city_slug in DYNAMIC_BLOCKED_CITIES
+        if is_blocked:
+            if city_slug in DYNAMIC_BLOCKED_CITIES and city_slug not in BLOCKED_CITIES:
+                print(f"  -> {loc['name']}... [DYNAMIC BLOCKED] skipped")
+            else:
+                print(f"  -> {loc['name']}... [BLOCKED] skipped")
             continue
         
         unit = loc["unit"]
         unit_sym = "F" if unit == "F" else "C"
         print(f"  -> {loc['name']}...", end=" ", flush=True)
+
+        # Update forecast bias for this city (#11)
+        try:
+            update_forecast_bias(city_slug)
+        except Exception:
+            pass  # Non-critical, skip if fails
 
         try:
             dates = [(now + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(4)]
@@ -683,26 +961,21 @@ def scan_and_update():
                     continue
                 try:
                     prices = json.loads(market.get("outcomePrices", "[0.5,0.5]"))
-                    # prices[0] = YES price, prices[1] = NO price
                     yes_price = float(prices[0])
                     no_price = float(prices[1]) if len(prices) > 1 else yes_price
                 except Exception:
                     continue
                 
-                # Determine which side to buy based on bucket type
-                # For ALL buckets, we bet that the forecast will be IN the bucket (YES)
-                # prices[0] = YES = "forecast WILL be in bucket"
-                # prices[1] = NO = "forecast will NOT be in bucket"
-                bid = yes_price   # Buy YES at yes_price
-                ask = no_price    # Sell NO at no_price
+                bid = yes_price
+                ask = no_price
                 
                 outcomes.append({
                     "question":  question,
                     "market_id": mid,
                     "range":     rng,
-                    "bid":       round(bid, 4),    # YES price (what we buy)
-                    "ask":       round(ask, 4),    # NO price (what we sell)
-                    "price":     round(bid, 4),    # for compatibility
+                    "bid":       round(bid, 4),
+                    "ask":       round(ask, 4),
+                    "price":     round(bid, 4),
                     "spread":    round(ask - bid, 4),
                     "volume":    round(volume, 0),
                     "yes_price": round(yes_price, 4),
@@ -753,15 +1026,20 @@ def scan_and_update():
                 if current_price is not None:
                     current_price = o.get("bid", current_price)  # sell at bid
                     entry = pos["entry_price"]
-                    stop  = pos.get("stop_price", entry * 0.80)  # 20% stop by default
+                    stop  = pos.get("stop_price", entry * 0.80)
+
+                    # City-specific stop threshold (#6)
+                    city_thresh = CITY_THRESHOLDS.get(city_slug, {})
+                    city_stop_pct = city_thresh.get("stop_loss", AUTO_REDEMPTION["stop_loss"])
 
                     # Trailing: if up 20%+ — move stop to breakeven
                     if current_price >= entry * 1.20 and stop < entry:
                         pos["stop_price"] = entry
                         pos["trailing_activated"] = True
 
-                    # Check stop
-                    if current_price <= stop:
+                    # Check stop (#3: skip if hours_left < 4)
+                    hours_left = hours
+                    if current_price <= stop and hours_left >= 4:
                         pnl = round((current_price - entry) * pos["shares"], 2)
                         balance += pos["cost"] + pnl
                         pos["closed_at"]    = snap.get("ts")
@@ -769,6 +1047,14 @@ def scan_and_update():
                         pos["exit_price"]   = current_price
                         pos["pnl"]          = pnl
                         pos["status"]       = "closed"
+                        # Fix #1: Record actual_temp when closing position
+                        try:
+                            actual = get_actual_temp(city_slug, date)
+                            if actual is not None:
+                                mkt["actual_temp"] = actual
+                                pos["actual_temp_at_close"] = actual
+                        except Exception:
+                            pass
                         closed += 1
                         reason = "STOP" if current_price < entry else "TRAILING BE"
                         print(f"  [{reason}] {loc['name']} {date} | entry ${entry:.3f} exit ${current_price:.3f} | PnL: {'+'if pnl>=0 else ''}{pnl:.2f}")
@@ -778,7 +1064,6 @@ def scan_and_update():
                 pos = mkt["position"]
                 old_bucket_low  = pos["bucket_low"]
                 old_bucket_high = pos["bucket_high"]
-                # 2-degree buffer — avoid closing on small forecast fluctuations
                 unit = loc["unit"]
                 buffer = 2.0 if unit == "F" else 1.0
                 mid_bucket = (old_bucket_low + old_bucket_high) / 2 if old_bucket_low != -999 and old_bucket_high != 999 else forecast_temp
@@ -797,6 +1082,14 @@ def scan_and_update():
                         mkt["position"]["exit_price"]   = current_price
                         mkt["position"]["pnl"]          = pnl
                         mkt["position"]["status"]       = "closed"
+                        # Fix #1: Record actual_temp when closing position
+                        try:
+                            actual = get_actual_temp(city_slug, date)
+                            if actual is not None:
+                                mkt["actual_temp"] = actual
+                                mkt["position"]["actual_temp_at_close"] = actual
+                        except Exception:
+                            pass
                         closed += 1
                         print(f"  [CLOSE] {loc['name']} {date} — forecast changed | PnL: {'+'if pnl>=0 else ''}{pnl:.2f}")
                         
@@ -819,17 +1112,14 @@ def scan_and_update():
                 confidence = snap.get("gfs_confidence")
                 
                 # Confidence threshold: require high confidence for opening positions
-                # If confidence is low, increase EV requirement
                 min_ev = MIN_EV
                 if confidence is not None:
                     if confidence < 0.5:
-                        min_ev = MIN_EV * 1.5  # Require 50% more EV if low confidence
+                        min_ev = MIN_EV * 1.5
                         print(f"  [LOW CONF] {loc['name']} {date}: conf={confidence}, min_ev={min_ev:.2f}")
-                else:
-                    # No GFS ensemble data, use default
-                    pass
                 
                 best_signal = None
+                trade_reason = None  # (#10)
 
                 for o in outcomes:
                     t_low, t_high = o["range"]
@@ -850,33 +1140,53 @@ def scan_and_update():
                         continue
 
                     p  = bucket_prob(forecast_temp, t_low, t_high, sigma)
-                    ev = calc_ev(p, ask)   # EV calculated from ask
+                    ev = calc_ev(p, ask)
                     if ev < min_ev:
                         continue
 
-                    kelly = calc_kelly(p, ask)
-                    size  = bet_size(kelly, balance, state)
+                    kelly = calc_kelly(p, ask, confidence)  # (#4) variable Kelly
+                    size  = bet_size(kelly, balance, state, confidence)  # (#9) confidence scaling
                     
-                    # MEGA EDGE ALERT: If EV > 50%, this is a HUGE opportunity!
-                    # Increase bet size and alert!
+                    # MEGA EDGE ALERT
+                    mega_edge = False
                     if ev >= 0.50:
                         mega_edge = True
-                        size = min(size * 2.5, MAX_BET * 2)  # Up to 2.5x normal size, up to 2x max bet
+                        size = min(size * 2.5, MAX_BET * 2)
                         print(f"  [🔥 MEGA EDGE!] {loc['name']} {date} | EV: {ev:.0%} | Size: ${size:.2f}")
                         if TELEGRAM_ENABLED:
-                            from telegram_alerts import alert_mega_edge
-                            alert_mega_edge(
-                                city=loc['name'],
-                                date=date,
-                                bucket=f"{t_low}-{t_high}{unit_sym}",
-                                ev=ev,
-                                forecast_temp=forecast_temp,
-                                price=bid,
-                                size=size,
-                                source=best_source or "ecmwf"
-                            )
+                            try:
+                                from telegram_alerts import alert_mega_edge
+                                alert_mega_edge(
+                                    city=loc['name'],
+                                    date=date,
+                                    bucket=f"{t_low}-{t_high}{unit_sym}",
+                                    ev=ev,
+                                    forecast_temp=forecast_temp,
+                                    price=bid,
+                                    size=size,
+                                    source=best_source or "ecmwf"
+                                )
+                            except Exception:
+                                pass
+                    
+                    # Determine trade_reason (#10)
+                    if mega_edge:
+                        trade_reason = "mega_edge"
+                    elif confidence is not None and confidence > 0.7:
+                        trade_reason = "high_confidence"
+                    elif ev >= 0.30:
+                        trade_reason = "high_ev"
                     else:
-                        mega_edge = False
+                        # Check if ensemble sources agree
+                        ecmwf_val = snap.get("ecmwf")
+                        hrrr_val = snap.get("hrrr")
+                        if ecmwf_val is not None and hrrr_val is not None:
+                            if abs(ecmwf_val - hrrr_val) < 2.0:
+                                trade_reason = "ensemble_agreement"
+                            else:
+                                trade_reason = "high_ev"
+                        else:
+                            trade_reason = "high_ev"
                     
                     if size < 0.50:
                         continue
@@ -886,20 +1196,21 @@ def scan_and_update():
                         "question":     o["question"],
                         "bucket_low":   t_low,
                         "bucket_high":  t_high,
-                        "entry_price":  bid,       # enter at YES price (bid)
-                        "bid_at_entry": bid,       # what we paid for YES
+                        "entry_price":  bid,
+                        "bid_at_entry": bid,
                         "yes_price_at_entry": o.get("yes_price", bid),
                         "spread":       spread,
-                        "shares":       round(size / bid, 2),  # shares based on YES price
+                        "shares":       round(size / bid, 2),
                         "cost":         size,
-                        "p":            round(p, 4),    # our probability estimate
+                        "p":            round(p, 4),
                         "ev":           round(ev, 4),
                         "kelly":        round(kelly, 4),
                         "forecast_temp":forecast_temp,
                         "forecast_src": best_source,
                         "sigma":        sigma,
                         "gfs_confidence": confidence,
-                        "bug_status":   "after-bug",   # Mark as post-fix
+                        "trade_reason": trade_reason,  # (#10)
+                        "bug_status":   "after-bug",
                         "opened_at":    snap.get("ts"),
                         "status":       "open",
                         "pnl":          None,
@@ -915,9 +1226,10 @@ def scan_and_update():
                     state["total_trades"] += 1
                     new_pos += 1
                     bucket_label = f"{best_signal['bucket_low']}-{best_signal['bucket_high']}{unit_sym}"
+                    reason_tag = f" [{best_signal['trade_reason']}]" if best_signal.get('trade_reason') else ""
                     print(f"  [BUY]  {loc['name']} {horizon} {date} | {bucket_label} | "
                           f"${best_signal['entry_price']:.3f} | EV {best_signal['ev']:+.2f} | "
-                          f"${best_signal['cost']:.2f} ({best_signal['forecast_src'].upper()})")
+                          f"${best_signal['cost']:.2f} ({best_signal['forecast_src'].upper()}){reason_tag}")
                     
                     # Telegram Alert: New Trade
                     if TELEGRAM_ENABLED:
@@ -974,9 +1286,17 @@ def scan_and_update():
         mkt["status"]       = "resolved"
         mkt["resolved_outcome"] = "win" if won else "loss"
 
+        # Try to get actual temp for resolved market
+        if mkt.get("actual_temp") is None:
+            try:
+                actual = get_actual_temp(mkt["city"], mkt["date"])
+                if actual is not None:
+                    mkt["actual_temp"] = actual
+            except Exception:
+                pass
+
         if won:
             state["wins"] += 1
-            # Track realized profits for auto-reinvestment
             if AUTO_REINVEST.get("enabled", False):
                 profit = pnl
                 reinvest_amount = profit * AUTO_REINVEST.get("fraction", 0.25)
@@ -990,7 +1310,6 @@ def scan_and_update():
         
         # Telegram Alert: Trade Resolved
         if TELEGRAM_ENABLED:
-            # Get actual temp if available
             actual_temp = mkt.get('actual_temp')
             forecast_temp = pos.get('forecast_temp')
             alert_trade_resolved(
@@ -1036,12 +1355,18 @@ def print_status():
     total   = wins + losses
 
     print(f"\n{'='*55}")
-    print(f"  WEATHERBET — STATUS")
+    print(f"  WEATHERBET v3.0 — STATUS")
     print(f"{'='*55}")
     print(f"  Balance:     ${bal:,.2f}  (start ${start:,.2f}, {'+'if ret_pct>=0 else ''}{ret_pct:.1f}%)")
     print(f"  Trades:      {total} | W: {wins} | L: {losses} | WR: {wins/total:.0%}" if total else "  No trades yet")
     print(f"  Open:        {len(open_pos)}")
     print(f"  Resolved:    {len(resolved)}")
+    
+    # Show dynamic blocked cities (#12)
+    if DYNAMIC_BLOCKED_CITIES:
+        blocked_names = [LOCATIONS.get(c, {}).get("name", c) for c in DYNAMIC_BLOCKED_CITIES if c not in BLOCKED_CITIES]
+        if blocked_names:
+            print(f"  Dyn Blocked: {', '.join(blocked_names)}")
 
     if open_pos:
         print(f"\n  Open positions:")
@@ -1051,11 +1376,9 @@ def print_status():
             unit_sym = "F" if m["unit"] == "F" else "C"
             label    = f"{pos['bucket_low']}-{pos['bucket_high']}{unit_sym}"
 
-            # Current price from latest market snapshot
             current_price = pos["entry_price"]
             snaps = m.get("market_snapshots", [])
             if snaps:
-                # Find our bucket price in all_outcomes
                 for o in m.get("all_outcomes", []):
                     if o["market_id"] == pos["market_id"]:
                         current_price = o["price"]
@@ -1064,10 +1387,11 @@ def print_status():
             unrealized = round((current_price - pos["entry_price"]) * pos["shares"], 2)
             total_unrealized += unrealized
             pnl_str = f"{'+'if unrealized>=0 else ''}{unrealized:.2f}"
+            reason_tag = f" [{pos.get('trade_reason', '?')}]" if pos.get('trade_reason') else ""
 
             print(f"    {m['city_name']:<16} {m['date']} | {label:<14} | "
                   f"entry ${pos['entry_price']:.3f} -> ${current_price:.3f} | "
-                  f"PnL: {pnl_str} | {pos['forecast_src'].upper()}")
+                  f"PnL: {pnl_str} | {pos['forecast_src'].upper()}{reason_tag}")
 
         sign = "+" if total_unrealized >= 0 else ""
         print(f"\n  Unrealized PnL: {sign}{total_unrealized:.2f}")
@@ -1079,7 +1403,7 @@ def print_report():
     resolved = [m for m in markets if m["status"] == "resolved" and m.get("pnl") is not None]
 
     print(f"\n{'='*55}")
-    print(f"  WEATHERBET — FULL REPORT")
+    print(f"  WEATHERBET v3.0 — FULL REPORT")
     print(f"{'='*55}")
 
     if not resolved:
@@ -1097,7 +1421,7 @@ def print_report():
     # Calibration & Brier Score Report
     cal = load_cal()
     if cal:
-        print(f"\n  CALIBRATION (Brier Score):")
+        print(f"\n  CALIBRATION (Price-Adjusted Brier Score):")
         print(f"  {'City':<16} {'Source':<8} {'Brier':<8} {'N':<5} {'Quality'}")
         print(f"  {'-'*50}")
         
@@ -1117,11 +1441,28 @@ def print_report():
                         quality = "🔴 Poor"
                     print(f"  {LOCATIONS[city]['name']:<16} {source:<8} {brier:.4f}   {n:<5} {quality}")
 
+    # Dynamic Blocked Cities (#12)
+    if DYNAMIC_BLOCKED_CITIES:
+        print(f"\n  DYNAMIC BLOCKED CITIES:")
+        for city in sorted(DYNAMIC_BLOCKED_CITIES):
+            if city not in BLOCKED_CITIES:
+                avg_brier = sum(get_brier_score(city, s) for s in ["ecmwf", "hrrr"]) / 2
+                print(f"    {LOCATIONS[city]['name']:<16} Brier: {avg_brier:.4f}")
+
+    # City Thresholds (#6)
+    if CITY_THRESHOLDS:
+        print(f"\n  CITY-SPECIFIC THRESHOLDS:")
+        print(f"  {'City':<16} {'Stop Loss':<12} {'Sigma':<8}")
+        print(f"  {'-'*40}")
+        for city in sorted(CITY_THRESHOLDS.keys()):
+            t = CITY_THRESHOLDS[city]
+            print(f"  {LOCATIONS[city]['name']:<16} {t['stop_loss']:<12.3f} {t['sigma']:<8.3f}")
+
     if not resolved:
         print(f"{'='*55}\n")
         return
 
-    # Bug Check: Verify entry prices are reasonable
+    # Bug Check
     print(f"\n  BUG CHECK (Entry Price Validation):")
     print(f"  {'City':<16} {'Forecast':<10} {'Bucket':<12} {'Entry':<8} {'Expected'}")
     print(f"  {'-'*60}")
@@ -1132,14 +1473,10 @@ def print_report():
         entry = pos.get("entry_price", 0)
         bucket = f"{pos.get('bucket_low', 'N/A')}-{pos.get('bucket_high', 'N/A')}"
         
-        # Check if entry price makes sense
-        # For a "≤" bucket with forecast below threshold, entry should be HIGH (>0.5)
-        # For a "≤" bucket with forecast above threshold, entry should be LOW (<0.5)
         if forecast and entry:
-            # Simple check: if forecast is in bucket, entry should be >0.5
             t_low, t_high = pos.get("bucket_low", -999), pos.get("bucket_high", 999)
-            in_bucket = t_low <= forecast <= t_high
-            expected_high = in_bucket  # If in bucket, expect high entry
+            fc_in_bucket = t_low <= forecast <= t_high
+            expected_high = fc_in_bucket
             actual_high = entry > 0.5
             
             if expected_high != actual_high:
@@ -1152,7 +1489,6 @@ def print_report():
     
     if bugs_found > 0:
         print(f"\n  ⚠️  Found {bugs_found} potential bugs in entry pricing!")
-        print(f"  This indicates YES/NO price interpretation may be wrong.")
     else:
         print(f"\n  ✅ All entry prices look correct.")
 
@@ -1176,7 +1512,9 @@ def print_report():
         pnl_str  = f"{'+'if m['pnl']>=0 else ''}{m['pnl']:.2f}" if m["pnl"] is not None else "-"
         fc_str   = f"forecast {first_fc}->{last_fc}{unit_sym}" if first_fc else "no forecast"
         actual   = f"actual {m['actual_temp']}{unit_sym}" if m["actual_temp"] else ""
-        print(f"    {m['city_name']:<16} {m['date']} | {label:<14} | {fc_str} | {actual} | {result} {pnl_str}")
+        reason   = pos.get("trade_reason", "")
+        reason_tag = f" [{reason}]" if reason else ""
+        print(f"    {m['city_name']:<16} {m['date']} | {label:<14} | {fc_str} | {actual} | {result} {pnl_str}{reason_tag}")
 
     print(f"{'='*55}\n")
 
@@ -1186,8 +1524,12 @@ def print_report():
 
 MONITOR_INTERVAL = 600  # monitor positions every 10 minutes
 
-def check_auto_redemption(mkt, pos, current_price):
-    """Check if position should be auto-redeemed based on Option B criteria."""
+def check_auto_redemption(mkt, pos, current_price, hours_left=None):
+    """Check if position should be auto-redeemed based on Option B criteria.
+    
+    v3.0 (#3): If hours_left < 4, disable stop-loss (let market resolve naturally).
+    v3.0 (#6): Uses city-specific thresholds.
+    """
     if not AUTO_REDEMPTION.get("enabled", False):
         return None
     
@@ -1206,6 +1548,25 @@ def check_auto_redemption(mkt, pos, current_price):
                 return None  # Too new, skip
         except:
             pass
+    
+    # (#3) If hours_left < 4, disable stop-loss — let market resolve naturally
+    if hours_left is not None and hours_left < 4:
+        # Only allow profit-taking, no stop-loss
+        pass
+    else:
+        # City-specific stop threshold (#6)
+        city_slug = mkt.get("city", "")
+        city_thresh = CITY_THRESHOLDS.get(city_slug, {})
+        effective_stop = city_thresh.get("stop_loss", AUTO_REDEMPTION["stop_loss"])
+        
+        # Criterion 4: P&L < stop threshold → Stop loss
+        if pnl_pct <= effective_stop:
+            return {
+                "action": "stop_loss",
+                "reason": f"AUTO: P&L {pnl_pct*100:.0f}% < {effective_stop*100:.0f}%",
+                "pct": 1.0,
+                "pnl_pct": pnl_pct * 100
+            }
     
     city_name = LOCATIONS.get(mkt["city"], {}).get("name", mkt["city"])
     
@@ -1236,15 +1597,6 @@ def check_auto_redemption(mkt, pos, current_price):
             "pnl_pct": pnl_pct * 100
         }
     
-    # Criterion 4: P&L < -20% → Stop loss
-    if pnl_pct <= AUTO_REDEMPTION["stop_loss"]:
-        return {
-            "action": "stop_loss",
-            "reason": f"AUTO: P&L {pnl_pct*100:.0f}% < -20%",
-            "pct": 1.0,
-            "pnl_pct": pnl_pct * 100
-        }
-    
     return None
 
 def monitor_positions():
@@ -1266,7 +1618,7 @@ def monitor_positions():
         current_price = None
         for o in mkt.get("all_outcomes", []):
             if o["market_id"] == mid:
-                current_price = o.get("bid", o["price"])  # use bid — sell price
+                current_price = o.get("bid", o["price"])
                 break
 
         if current_price is None:
@@ -1274,6 +1626,10 @@ def monitor_positions():
 
         entry = pos["entry_price"]
         stop  = pos.get("stop_price", entry * 0.80)
+        
+        # Calculate hours_left for this position (#3)
+        end_date = mkt.get("event_end_date", "")
+        hours_left = hours_to_resolution(end_date) if end_date else 999.0
 
         # Trailing: if up 20%+ — move stop to breakeven
         if current_price >= entry * 1.20 and stop < entry:
@@ -1282,8 +1638,8 @@ def monitor_positions():
             city_name = LOCATIONS.get(mkt["city"], {}).get("name", mkt["city"])
             print(f"  [TRAILING] {city_name} {mkt['date']} — stop moved to breakeven ${entry:.3f}")
 
-        # Check stop
-        if current_price <= stop:
+        # Check stop (#3: only if hours_left >= 4)
+        if current_price <= stop and hours_left >= 4:
             pnl = round((current_price - entry) * pos["shares"], 2)
             balance += pos["cost"] + pnl
             pos["closed_at"]    = datetime.now(timezone.utc).isoformat()
@@ -1291,6 +1647,14 @@ def monitor_positions():
             pos["exit_price"]   = current_price
             pos["pnl"]          = pnl
             pos["status"]       = "closed"
+            # Fix #1: Record actual_temp when closing position
+            try:
+                actual = get_actual_temp(mkt["city"], mkt["date"])
+                if actual is not None:
+                    mkt["actual_temp"] = actual
+                    pos["actual_temp_at_close"] = actual
+            except Exception:
+                pass
             closed += 1
             reason = "STOP" if current_price < entry else "TRAILING BE"
             city_name = LOCATIONS.get(mkt["city"], {}).get("name", mkt["city"])
@@ -1298,8 +1662,8 @@ def monitor_positions():
             save_market(mkt)
             continue
         
-        # Auto-Redemption Check (Option B)
-        auto_action = check_auto_redemption(mkt, pos, current_price)
+        # Auto-Redemption Check (with hours_left #3)
+        auto_action = check_auto_redemption(mkt, pos, current_price, hours_left)
         if auto_action:
             city_name = LOCATIONS.get(mkt["city"], {}).get("name", mkt["city"])
             sell_pct = auto_action["pct"]
@@ -1314,6 +1678,14 @@ def monitor_positions():
                 pos["exit_price"]   = current_price
                 pos["pnl"]          = sell_value
                 pos["status"]       = "closed"
+                # Fix #1: Record actual_temp when closing position
+                try:
+                    actual = get_actual_temp(mkt["city"], mkt["date"])
+                    if actual is not None:
+                        mkt["actual_temp"] = actual
+                        pos["actual_temp_at_close"] = actual
+                except Exception:
+                    pass
                 closed += 1
                 print(f"  [AUTO-{auto_action['action'].upper()}] {city_name} {mkt['date']} | PnL: +{auto_action['pnl_pct']:.0f}% | {auto_action['reason']}")
             else:
@@ -1325,7 +1697,6 @@ def monitor_positions():
                 remaining_pnl = round((current_price - entry) * pos["shares"], 2)
                 print(f"  [AUTO-{auto_action['action'].upper()}] {city_name} {mkt['date']} | Sold {sell_pct*100:.0f}% @ ${current_price:.3f} | PnL locked: +{sell_value:.2f} | Remaining: {pos['shares']} shares")
                 
-                # Alert via Telegram if enabled
                 if TELEGRAM_ENABLED:
                     alert_pnl_update(city_name, current_price, entry, remaining_pnl, auto_action["reason"])
             
@@ -1342,13 +1713,17 @@ def run_loop():
     global _cal
     _cal = load_cal()
 
+    # Initialize city thresholds and dynamic blocking
+    update_city_thresholds()
+    update_dynamic_blocked_cities()
+
     print(f"\n{'='*55}")
-    print(f"  WEATHERBET — STARTING")
+    print(f"  WEATHERBET v3.0 — STARTING")
     print(f"{'='*55}")
     print(f"  Cities:     {len(LOCATIONS)}")
     print(f"  Balance:    ${BALANCE:,.0f} | Max bet: ${MAX_BET}")
-    print(f"  Scan:       {SCAN_INTERVAL//60} min | Monitor: {MONITOR_INTERVAL//60} min")
-    print(f"  Sources:    ECMWF + HRRR(US) + METAR(D+0)")
+    print(f"  Scan:       {SLOW_SCAN_INTERVAL//60} min (adaptive) | Monitor: {MONITOR_INTERVAL//60} min")
+    print(f"  Sources:    ECMWF + HRRR(US) + METAR(D+0) + Weighted Ensemble")
     print(f"  Data:       {DATA_DIR.resolve()}")
     print(f"  Ctrl+C to stop\n")
 
@@ -1362,9 +1737,22 @@ def run_loop():
         now_ts  = time.time()
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Full scan once per hour
-        if now_ts - last_full_scan >= SCAN_INTERVAL:
-            print(f"[{now_str}] full scan...")
+        # Adaptive scan interval (#8)
+        effective_scan = SLOW_SCAN_INTERVAL
+        if ADAPTIVE_SCAN:
+            markets = load_all_markets()
+            open_positions = [m for m in markets if m.get("position") and m["position"].get("status") == "open"]
+            for m in open_positions:
+                end_date = m.get("event_end_date", "")
+                if end_date:
+                    hrs = hours_to_resolution(end_date)
+                    if hrs < 6:
+                        effective_scan = FAST_SCAN_INTERVAL
+                        break
+
+        # Full scan
+        if now_ts - last_full_scan >= effective_scan:
+            print(f"[{now_str}] full scan (interval: {effective_scan//60}min)...")
             try:
                 new_pos, closed, resolved = scan_and_update()
                 state = load_state()
@@ -1413,9 +1801,13 @@ if __name__ == "__main__":
         run_loop()
     elif cmd == "status":
         _cal = load_cal()
+        update_city_thresholds()
+        update_dynamic_blocked_cities()
         print_status()
     elif cmd == "report":
         _cal = load_cal()
+        update_city_thresholds()
+        update_dynamic_blocked_cities()
         print_report()
     else:
-        print("Usage: python bot_v2.py [run|status|report]")
+        print("Usage: python bot_v3.py [run|status|report]")

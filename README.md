@@ -2,7 +2,7 @@
 
 Bot automatizado para negociar mercados meteorológicos no Polymarket. Encontra preços errados de temperaturas usando dados reais de previsão de múltiplas fontes em 20 cidades pelo mundo.
 
-Sem SDK. Sem caixa preta. Python puro.
+Sem SDK. Sem caixa preta. Python puro. **v3.0 — 12 melhorias para precisão e P&L.**
 
 ---
 
@@ -128,13 +128,13 @@ Edite `config.json`:
 
 ```bash
 # Iniciar o bot (scans a cada hora)
-python bot_v2.py run
+python bot_v3.py run
 
 # Ver saldo e posições abertas
-python bot_v2.py status
+python bot_v3.py status
 
 # Relatório completo de todos os mercados resolvidos
-python bot_v2.py report
+python bot_v3.py report
 ```
 
 ---
@@ -253,13 +253,56 @@ Cada arquivo contém:
 
 ---
 
-##⚠️ Aviso
+### Weighted Ensemble Forecast (v3.0 #5)
+O bot agora usa uma média ponderada de ECMWF e HRRR baseada no Brier Score histórico de cada fonte/cidade, em vez de simplesmente escolher uma fonte.
+
+### Variable Kelly Fraction (v3.0 #4)
+Fração do Kelly varia com a confiança do ensemble GFS:
+- **Alta (>0.7):** 50% do Kelly
+- **Média (0.4–0.7):** 30% do Kelly
+- **Baixa (<0.4):** 15% do Kelly
+
+### Confidence-Scaled Bet Size (v3.0 #9)
+Apostas são reduzidas quando a confiança é baixa:
+- confiança < 0.3: aposta × 0.25
+- confiança < 0.5: aposta × 0.5
+- confiança > 0.8: aposta × 1.25
+
+### Time-Aware Stop-Loss (v3.0 #3)
+Stop-loss é desativado quando faltam < 4h para resolução — evita vender posições que ainda podem ganhar.
+
+### City-Specific Thresholds (v3.0 #6)
+Cidades com maior volatilidade histórica recebem stops mais amplos:
+`stop_loss = base_stop × (1 + sigma/2)`
+
+### Adaptive Scan Interval (v3.0 #8)
+- **15 min** quando há posições com < 6h para resolução
+- **30 min** caso contrário
+
+### Dynamic Blocked Cities (v3.0 #12)
+Cidades com Brier > 0.35 são bloqueadas automaticamente. Se melhoram para < 0.25, são desbloqueadas.
+
+### METAR Bias Correction (v3.0 #11)
+Correção sistemática de viés comparando observações METAR com previsões ECMWF/HRRR.
+
+### Brier-Optimized Sigma (v3.0 #7)
+Sigma é calibrado via grid search para minimizar o Brier Score (em vez de usar MAE diretamente).
+
+### Trade Reason Tracking (v3.0 #10)
+Cada posição registra o motivo de abertura: `high_ev`, `high_confidence`, `mega_edge`, `ensemble_agreement`.
+
+### Price-Adjusted Brier Score (v3.0 #2)
+Fórmula: `brier = ((p × price) - actual)²` — reflete a confiança real ajustada pelo preço pago.
+
+---
+
+## ⚠️ Aviso
 
 Isso não é conselho financeiro. Mercados de predição carregam risco real. Execute a simulação completamente antes de comprometer capital real.
 
 ---
 
-**Versão:** v2.0  
+**Versão:** v3.0  
 **Original:** https://github.com/alteregoeth-ai/weatherbot  
 **Fork:** Delphus123/Tempo-bet
 
@@ -269,7 +312,7 @@ Isso não é conselho financeiro. Mercados de predição carregam risco real. Ex
 
 ```bash
 # Verificar se está rodando
-ps aux | grep bot_v2
+ps aux | grep bot_v3
 
 # Ver logs em tempo real
 tail -f data/markets/*.json
