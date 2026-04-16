@@ -9,7 +9,7 @@
   Data:       /home/hal9000/Projects/Tempo-bet/data
   Ctrl+C to stop
 
-[2026-04-12 16:54:25] full scan (interval: 30min)...
+[2026-04-13 07:09:51] full scan (interval: 15min)...
   -> New York City... [BLOCKED] skipped
   -> Chicago... [BLOCKED] skipped
   -> Miami... [BLOCKED] skipped
@@ -20,23 +20,98 @@
   -> Paris... ok
   -> Munich... [BLOCKED] skipped
   -> Ankara... [BLOCKED] skipped
-  -> Seoul...   [LOW CONF] Seoul 2026-04-13: conf=0, min_ev=0.15
-  [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
 ok
   -> Tokyo... ok
   -> Shanghai... [BLOCKED] skipped
   -> Singapore... ok
   -> Lucknow... ok
   -> Tel Aviv... ok
-  -> Toronto...   [ECMWF] toronto: HTTPSConnectionPool(host='api.open-meteo.com', port=443): Read timed out. (read timeout=5)
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  [LOSS] Tokyo 2026-04-13 | PnL: -50.00
+  balance: $17,947.88 | new: 0 | closed: 0 | resolved: 1
+[2026-04-13 07:20:49] monitoring positions...
+[2026-04-13 07:30:49] full scan (interval: 15min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo... ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $17,947.88 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 07:41:44] monitoring positions...
+[2026-04-13 07:51:44] full scan (interval: 15min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo... ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $17,947.88 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 08:02:36] monitoring positions...
+[2026-04-13 08:12:36] full scan (interval: 15min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo... ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto...   [STOP] Toronto 2026-04-14 | entry $0.730 exit $0.525 | PnL: -14.04
 ok
   -> Sao Paulo... ok
   -> Buenos Aires... ok
   -> Wellington... ok
-  balance: $17,587.39 | new: 0 | closed: 0 | resolved: 0
-[2026-04-12 17:05:26] monitoring positions...
-[2026-04-12 17:15:26] monitoring positions...
-[2026-04-12 17:25:26] full scan (interval: 30min)...
+  balance: $17,983.84 | new: 0 | closed: 1 | resolved: 0
+[2026-04-13 08:23:30] monitoring positions...
+[2026-04-13 08:33:30] full scan (interval: 15min)...
   -> New York City... [BLOCKED] skipped
   -> Chicago... [BLOCKED] skipped
   -> Miami... [BLOCKED] skipped
@@ -47,24 +122,22 @@ ok
   -> Paris... ok
   -> Munich... [BLOCKED] skipped
   -> Ankara... [BLOCKED] skipped
-  -> Seoul...   [LOW CONF] Seoul 2026-04-13: conf=0, min_ev=0.15
-  [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
 ok
   -> Tokyo... ok
   -> Shanghai... [BLOCKED] skipped
   -> Singapore... ok
   -> Lucknow... ok
   -> Tel Aviv... ok
-  -> Toronto...   [LOW CONF] Toronto 2026-04-13: conf=0.48, min_ev=0.15
-ok
+  -> Toronto... ok
   -> Sao Paulo... ok
   -> Buenos Aires... ok
   -> Wellington...   [MODEL_ENSEMBLE] wellington: HTTPSConnectionPool(host='api.open-meteo.com', port=443): Read timed out. (read timeout=5)
 ok
-  balance: $17,587.39 | new: 0 | closed: 0 | resolved: 0
-[2026-04-12 17:36:21] monitoring positions...
-[2026-04-12 17:46:21] monitoring positions...
-[2026-04-12 17:56:22] full scan (interval: 30min)...
+  balance: $17,983.84 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 08:44:33] monitoring positions...
+[2026-04-13 08:54:33] full scan (interval: 15min)...
   -> New York City... [BLOCKED] skipped
   -> Chicago... [BLOCKED] skipped
   -> Miami... [BLOCKED] skipped
@@ -75,24 +148,190 @@ ok
   -> Paris... ok
   -> Munich... [BLOCKED] skipped
   -> Ankara... [BLOCKED] skipped
-  -> Seoul...   [LOW CONF] Seoul 2026-04-13: conf=0, min_ev=0.15
-  [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
 ok
-  -> Tokyo... ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.47, min_ev=0.15
+ok
   -> Shanghai... [BLOCKED] skipped
   -> Singapore... ok
   -> Lucknow... ok
   -> Tel Aviv... ok
-  -> Toronto...   [LOW CONF] Toronto 2026-04-13: conf=0.48, min_ev=0.15
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $17,983.84 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 09:05:27] monitoring positions...
+[2026-04-13 09:15:27] full scan (interval: 15min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London...   [🔥 MEGA EDGE!] London 2026-04-14 | EV: 98% | Size: $50.00
+  [BUY]  London D+1 2026-04-14 | 16.0-16.0C | $0.495 | EV +0.98 | $50.00 (ECMWF) [mega_edge]
+ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.47, min_ev=0.15
+ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $17,933.84 | new: 1 | closed: 0 | resolved: 0
+[2026-04-13 09:26:21] monitoring positions...
+[2026-04-13 09:36:21] full scan (interval: 15min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.47, min_ev=0.15
+ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $17,933.84 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 09:47:14] monitoring positions...
+  [AUTO-SELL_FULL] Tel Aviv 2026-04-13 | PnL: +97% | AUTO: price $0.955 > $0.99 (near certain win)
+  balance: $18,032.25
+[2026-04-13 09:57:14] monitoring positions...
+[2026-04-13 10:07:15] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.47, min_ev=0.15
+ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $18,032.25 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 10:18:07] monitoring positions...
+[2026-04-13 10:28:07] monitoring positions...
+[2026-04-13 10:38:08] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [METAR] seoul: HTTPSConnectionPool(host='aviationweather.gov', port=443): Read timed out. (read timeout=8)
+  [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.47, min_ev=0.15
+ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $18,032.25 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 10:49:09] monitoring positions...
+[2026-04-13 10:59:09] monitoring positions...
+[2026-04-13 11:09:09] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.47, min_ev=0.15
+ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $18,032.25 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 11:20:03] monitoring positions...
+[2026-04-13 11:30:04] monitoring positions...
+[2026-04-13 11:40:04] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London...   [STOP] London 2026-04-14 | entry $0.495 exit $0.280 | PnL: -21.72
+ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.47, min_ev=0.15
+ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto...   [MODEL_ENSEMBLE] toronto: HTTPSConnectionPool(host='api.open-meteo.com', port=443): Read timed out. (read timeout=5)
 ok
   -> Sao Paulo... ok
   -> Buenos Aires... ok
   -> Wellington... ok
-  [WIN] Lucknow 2026-04-12 | PnL: +51.01
-  balance: $17,688.40 | new: 0 | closed: 0 | resolved: 1
-[2026-04-12 18:07:16] monitoring positions...
-[2026-04-12 18:17:16] monitoring positions...
-[2026-04-12 18:27:17] full scan (interval: 30min)...
+  balance: $18,060.53 | new: 0 | closed: 1 | resolved: 0
+[2026-04-13 11:51:05] monitoring positions...
+[2026-04-13 12:01:05] monitoring positions...
+[2026-04-13 12:11:05] full scan (interval: 30min)...
   -> New York City... [BLOCKED] skipped
   -> Chicago... [BLOCKED] skipped
   -> Miami... [BLOCKED] skipped
@@ -103,23 +342,24 @@ ok
   -> Paris... ok
   -> Munich... [BLOCKED] skipped
   -> Ankara... [BLOCKED] skipped
-  -> Seoul...   [LOW CONF] Seoul 2026-04-13: conf=0, min_ev=0.15
-  [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
 ok
-  -> Tokyo... ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.47, min_ev=0.15
+ok
   -> Shanghai... [BLOCKED] skipped
   -> Singapore... ok
   -> Lucknow... ok
   -> Tel Aviv... ok
-  -> Toronto...   [LOW CONF] Toronto 2026-04-13: conf=0.48, min_ev=0.15
+  -> Toronto...   [MODEL_ENSEMBLE] toronto: HTTPSConnectionPool(host='api.open-meteo.com', port=443): Read timed out. (read timeout=5)
 ok
   -> Sao Paulo... ok
   -> Buenos Aires... ok
   -> Wellington... ok
-  balance: $17,688.40 | new: 0 | closed: 0 | resolved: 0
-[2026-04-12 18:38:11] monitoring positions...
-[2026-04-12 18:48:11] monitoring positions...
-[2026-04-12 18:58:11] full scan (interval: 30min)...
+  balance: $18,060.53 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 12:22:03] monitoring positions...
+[2026-04-13 12:32:03] monitoring positions...
+[2026-04-13 12:42:04] full scan (interval: 30min)...
   -> New York City... [BLOCKED] skipped
   -> Chicago... [BLOCKED] skipped
   -> Miami... [BLOCKED] skipped
@@ -130,19 +370,372 @@ ok
   -> Paris... ok
   -> Munich... [BLOCKED] skipped
   -> Ankara... [BLOCKED] skipped
-  -> Seoul...   [LOW CONF] Seoul 2026-04-13: conf=0, min_ev=0.15
-  [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
 ok
-  -> Tokyo...   [🔥 MEGA EDGE!] Tokyo 2026-04-13 | EV: 94% | Size: $50.00
-  [BUY]  Tokyo D+1 2026-04-13 | 22.0-22.0C | $0.485 | EV +0.94 | $50.00 (ECMWF) [mega_edge]
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.47, min_ev=0.15
 ok
   -> Shanghai... [BLOCKED] skipped
   -> Singapore... ok
   -> Lucknow... ok
   -> Tel Aviv... ok
-  -> Toronto...   [LOW CONF] Toronto 2026-04-13: conf=0.48, min_ev=0.15
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $18,060.53 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 12:52:56] monitoring positions...
+[2026-04-13 13:02:56] monitoring positions...
+[2026-04-13 13:12:56] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
 ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.47, min_ev=0.15
+ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $18,060.53 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 13:23:52] monitoring positions...
+[2026-04-13 13:33:52] monitoring positions...
+[2026-04-13 13:43:52] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.47, min_ev=0.15
+ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $18,060.53 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 13:54:47] monitoring positions...
+[2026-04-13 14:04:47] monitoring positions...
+[2026-04-13 14:14:47] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.47, min_ev=0.15
+ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $18,060.53 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 14:25:44] monitoring positions...
+[2026-04-13 14:35:44] monitoring positions...
+[2026-04-13 14:45:45] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.47, min_ev=0.15
+ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $18,060.53 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 14:56:40] monitoring positions...
+[2026-04-13 15:06:40] monitoring positions...
+[2026-04-13 15:16:40] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.47, min_ev=0.15
+ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  [LOSS] Seoul 2026-04-13 | PnL: -50.00
+  balance: $18,060.53 | new: 0 | closed: 0 | resolved: 1
+[2026-04-13 15:27:34] monitoring positions...
+[2026-04-13 15:37:34] monitoring positions...
+[2026-04-13 15:47:34] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.47, min_ev=0.15
+ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $18,060.53 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 15:58:28] monitoring positions...
+[2026-04-13 16:08:29] monitoring positions...
+[2026-04-13 16:18:29] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.47, min_ev=0.15
+ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $18,060.53 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 16:29:22] monitoring positions...
+[2026-04-13 16:39:22] monitoring positions...
+[2026-04-13 16:49:22] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London...   [METAR] london: HTTPSConnectionPool(host='aviationweather.gov', port=443): Read timed out. (read timeout=8)
+ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.47, min_ev=0.15
+ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto...   [MODEL_ENSEMBLE] toronto: HTTPSConnectionPool(host='api.open-meteo.com', port=443): Read timed out. (read timeout=5)
+ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $18,060.53 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 17:00:36] monitoring positions...
+[2026-04-13 17:10:36] monitoring positions...
+[2026-04-13 17:20:36] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.43, min_ev=0.15
+ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv...   [ECMWF] tel-aviv: HTTPSConnectionPool(host='api.open-meteo.com', port=443): Read timed out. (read timeout=5)
+ok
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $18,060.53 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 17:31:40] monitoring positions...
+[2026-04-13 17:41:40] monitoring positions...
+[2026-04-13 17:51:40] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.43, min_ev=0.15
+ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto... ok
   -> Sao Paulo... ok
   -> Buenos Aires...   [MODEL_ENSEMBLE] buenos-aires: HTTPSConnectionPool(host='api.open-meteo.com', port=443): Read timed out. (read timeout=5)
 ok
+  -> Wellington... ok
+  balance: $18,060.53 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 18:02:38] monitoring positions...
+[2026-04-13 18:12:38] monitoring positions...
+[2026-04-13 18:22:38] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.43, min_ev=0.15
+ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $18,060.53 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 18:33:34] monitoring positions...
+[2026-04-13 18:43:34] monitoring positions...
+[2026-04-13 18:53:34] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.43, min_ev=0.15
+ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
+  -> Wellington... ok
+  balance: $18,060.53 | new: 0 | closed: 0 | resolved: 0
+[2026-04-13 19:04:26] monitoring positions...
+[2026-04-13 19:14:26] monitoring positions...
+[2026-04-13 19:24:26] full scan (interval: 30min)...
+  -> New York City... [BLOCKED] skipped
+  -> Chicago... [BLOCKED] skipped
+  -> Miami... [BLOCKED] skipped
+  -> Dallas... [BLOCKED] skipped
+  -> Seattle... [BLOCKED] skipped
+  -> Atlanta... [BLOCKED] skipped
+  -> London... ok
+  -> Paris... ok
+  -> Munich... [BLOCKED] skipped
+  -> Ankara... [BLOCKED] skipped
+  -> Seoul...   [LOW CONF] Seoul 2026-04-14: conf=0, min_ev=0.15
+  [LOW CONF] Seoul 2026-04-15: conf=0, min_ev=0.15
+ok
+  -> Tokyo...   [LOW CONF] Tokyo 2026-04-15: conf=0.43, min_ev=0.15
+ok
+  -> Shanghai... [BLOCKED] skipped
+  -> Singapore... ok
+  -> Lucknow... ok
+  -> Tel Aviv... ok
+  -> Toronto... ok
+  -> Sao Paulo... ok
+  -> Buenos Aires... ok
   -> Wellington... 
