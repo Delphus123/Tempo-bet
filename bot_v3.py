@@ -45,7 +45,7 @@ with open("config.json", encoding="utf-8") as f:
 BALANCE          = _cfg.get("balance", 10000.0)
 MAX_BET          = _cfg.get("max_bet", 25.0)        # max bet per trade
 MIN_EV           = _cfg.get("min_ev", 0.10)  # 10% - balanced for better coverage
-MAX_PRICE        = _cfg.get("max_price", 0.65)
+MAX_PRICE        = _cfg.get("max_price", 0.55)  # v3.1: lowered from 0.65 to reduce expensive entries
 MIN_VOLUME       = _cfg.get("min_volume", 10000)  # $10k - increased for liquidity
 MIN_HOURS        = _cfg.get("min_hours", 2.0)
 MAX_HOURS        = _cfg.get("max_hours", 72.0)
@@ -84,7 +84,7 @@ ALLOWED_CITIES = [
     "buenos-aires", # Unknown
     "sao-paulo",   # Unknown
     "tel-aviv",    # Unknown
-    "wellington",  # Unknown
+    # "wellington",  # REMOVED v3.1: noaa_gfs_v2_0 API error causes bot to hang
 ]
 
 # Blocked cities (poor accuracy historically) — can be overridden dynamically (#12)
@@ -97,7 +97,8 @@ BLOCKED_CITIES = [
     "nyc",         # 0/1 loss
     "seattle",     # Unknown
     "dallas",      # Unknown
-    "shanghai",    # Unknown
+    "shanghai",    # API blocked — Open-Meteo inaccessible from China region
+    "wellington",  # API error — noaa_gfs_v2_0 hangs on Open-Meteo
 ]
 
 # Dynamic blocked cities (#12) — populated at runtime
@@ -143,7 +144,7 @@ LOCATIONS = {
     "toronto":      {"lat": 43.6772,  "lon":  -79.6306, "name": "Toronto",       "station": "CYYZ", "unit": "C", "region": "ca"},
     "sao-paulo":    {"lat": -23.4356, "lon":  -46.4731, "name": "Sao Paulo",     "station": "SBGR", "unit": "C", "region": "sa"},
     "buenos-aires": {"lat": -34.8222, "lon":  -58.5358, "name": "Buenos Aires",  "station": "SAEZ", "unit": "C", "region": "sa"},
-    "wellington":   {"lat": -41.3272,  "lon": 174.8052, "name": "Wellington",    "station": "NZWN", "unit": "C", "region": "oc"},
+    # "wellington",  # REMOVED v3.1: noaa_gfs_v2_0 API error causes bot to hang
 }
 
 TIMEZONES = {
@@ -156,7 +157,7 @@ TIMEZONES = {
     "shanghai": "Asia/Shanghai", "singapore": "Asia/Singapore",
     "lucknow": "Asia/Kolkata", "tel-aviv": "Asia/Jerusalem",
     "toronto": "America/Toronto", "sao-paulo": "America/Sao_Paulo",
-    "buenos-aires": "America/Argentina/Buenos_Aires", "wellington": "Pacific/Auckland",
+    "buenos-aires": "America/Argentina/Buenos_Aires",  # Wellington removed v3.1: noaa_gfs_v2_0 hangs
 }
 
 MONTHS = ["january","february","march","april","may","june",
@@ -1207,6 +1208,16 @@ def scan_and_update():
             if not mkt.get("position") and forecast_temp is not None and hours >= MIN_HOURS:
                 sigma = get_sigma(city_slug, best_source or "ecmwf")
                 
+                # v3.1 Improvement #3: Apply bias correction before bucket selection
+                bias_corrected_temp = forecast_temp
+                cal_data = load_cal()
+                bias_key = f"{city_slug}_{best_source or 'ecmwf'}"
+                if bias_key in cal_data and cal_data[bias_key].get("bias") is not None:
+                    bias = cal_data[bias_key]["bias"]
+                    if abs(bias) >= 0.5:  # Only correct if bias is significant
+                        bias_corrected_temp = round(forecast_temp - bias, 1)
+                        forecast_temp = bias_corrected_temp
+                        
                 # Get GFS ensemble confidence for this date
                 confidence = snap.get("gfs_confidence")
                 
@@ -1228,6 +1239,19 @@ def scan_and_update():
                     if not in_bucket(forecast_temp, t_low, t_high):
                         continue
 
+                    # v3.1 Improvement #2: Reject narrow buckets (< 2°C width)
+                    bucket_width = t_high - t_low if t_low != -999 and t_high != 999 else 999
+                    if bucket_width < 2.0:
+                        continue
+
+                    # v3.1 Improvement #4: Margin of error — forecast must be >= 0.5°C inside bucket
+                    if t_low != -999 and t_high != 999 and bucket_width < 999:
+                        margin_low = forecast_temp - t_low
+                        margin_high = t_high - forecast_temp
+                        min_margin = min(margin_low, margin_high)
+                        if min_margin < 0.5:
+                            continue
+
                     bid    = o.get("bid", o["price"])
                     ask    = o.get("ask", o["price"])
                     spread = o.get("spread", 0)
@@ -1245,6 +1269,10 @@ def scan_and_update():
 
                     kelly = calc_kelly(p, ask, confidence)  # (#4) variable Kelly
                     size  = bet_size(kelly, balance, state, confidence)  # (#9) confidence scaling
+                    
+                    # v3.1 Improvement #5: Reduce bet for low confidence (<60%)
+                    if confidence is not None and confidence < 0.60:
+                        size = size * 0.5  # Half bet for low confidence
                     
                     # MEGA EDGE ALERT
                     mega_edge = False
