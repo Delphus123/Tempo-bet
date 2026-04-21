@@ -8,6 +8,10 @@ compares with Polymarket markets, paper trades using Kelly criterion.
 
 v3.0: 12 improvements — weighted ensemble, variable Kelly, adaptive scan,
       dynamic blocking, METAR bias correction, Brier-optimized sigma, and more.
+v3.1: Smart filtering (confidence, bucket width, margin, bias correction)
+v3.2: Optimized filters (data-driven, less restrictive)
+v3.3: 8 tropical cities added (HK, Mumbai, Bangkok, Dubai, Mexico City, Bogota, Jakarta, Istanbul)
+v3.4: Multi-model ensemble (ECMWF+ICON+JMA+UKMO+METEOFRANCE+GEM), spread-based filtering
 
 Usage:
     python bot_v3.py          # main loop
@@ -45,7 +49,7 @@ with open("config.json", encoding="utf-8") as f:
 BALANCE          = _cfg.get("balance", 10000.0)
 MAX_BET          = _cfg.get("max_bet", 25.0)        # max bet per trade
 MIN_EV           = _cfg.get("min_ev", 0.10)  # 10% - balanced for better coverage
-MAX_PRICE        = _cfg.get("max_price", 0.55)  # v3.1: lowered from 0.65 to reduce expensive entries
+MAX_PRICE        = _cfg.get("max_price", 0.65)  # v3.2: restored from 0.55 — data showed expensive entries were profitable
 MIN_VOLUME       = _cfg.get("min_volume", 10000)  # $10k - increased for liquidity
 MIN_HOURS        = _cfg.get("min_hours", 2.0)
 MAX_HOURS        = _cfg.get("max_hours", 72.0)
@@ -84,7 +88,15 @@ ALLOWED_CITIES = [
     "buenos-aires", # Unknown
     "sao-paulo",   # Unknown
     "tel-aviv",    # Unknown
-    # "wellington",  # REMOVED v3.1: noaa_gfs_v2_0 API error causes bot to hang
+    # v3.3: Tropical cities (stable climate, more predictable)
+    "hong-kong",   # Tropical/subtropical - stable temps
+    "mumbai",      # Tropical - very stable
+    "bangkok",     # Tropical - predictable
+    "dubai",       # Desert - extremely stable
+    "mexico-city", # Subtropical altitude - moderate
+    "bogota",      # Tropical altitude - stable
+    "jakarta",     # Tropical equatorial - very stable
+    "istanbul",    # Temperate - market active
 ]
 
 # Blocked cities (poor accuracy historically) — can be overridden dynamically (#12)
@@ -144,7 +156,15 @@ LOCATIONS = {
     "toronto":      {"lat": 43.6772,  "lon":  -79.6306, "name": "Toronto",       "station": "CYYZ", "unit": "C", "region": "ca"},
     "sao-paulo":    {"lat": -23.4356, "lon":  -46.4731, "name": "Sao Paulo",     "station": "SBGR", "unit": "C", "region": "sa"},
     "buenos-aires": {"lat": -34.8222, "lon":  -58.5358, "name": "Buenos Aires",  "station": "SAEZ", "unit": "C", "region": "sa"},
-    # "wellington",  # REMOVED v3.1: noaa_gfs_v2_0 API error causes bot to hang
+    # v3.3: Tropical cities - stable climates, more predictable
+    "hong-kong":   {"lat":  22.3193, "lon":  114.1694, "name": "Hong Kong",    "station": "VHHH", "unit": "C", "region": "asia"},
+    "mumbai":      {"lat":  19.0760, "lon":   72.8777, "name": "Mumbai",       "station": "VABB", "unit": "C", "region": "asia"},
+    "bangkok":     {"lat":  13.7563, "lon":  100.5018, "name": "Bangkok",      "station": "VTBS", "unit": "C", "region": "asia"},
+    "dubai":       {"lat":  25.2048, "lon":   55.2708, "name": "Dubai",        "station": "OMDB", "unit": "C", "region": "asia"},
+    "mexico-city": {"lat":  19.4326, "lon":  -99.1332, "name": "Mexico City",  "station": "MMMX", "unit": "C", "region": "na"},
+    "bogota":      {"lat":   4.7110, "lon":  -74.0721, "name": "Bogota",       "station": "SKBO", "unit": "C", "region": "sa"},
+    "jakarta":     {"lat":  -6.2088, "lon":  106.8456, "name": "Jakarta",      "station": "WIII", "unit": "C", "region": "asia"},
+    "istanbul":    {"lat":  41.2753, "lon":   28.7229, "name": "Istanbul",     "station": "LTFM", "unit": "C", "region": "eu"},
 }
 
 TIMEZONES = {
@@ -157,7 +177,12 @@ TIMEZONES = {
     "shanghai": "Asia/Shanghai", "singapore": "Asia/Singapore",
     "lucknow": "Asia/Kolkata", "tel-aviv": "Asia/Jerusalem",
     "toronto": "America/Toronto", "sao-paulo": "America/Sao_Paulo",
-    "buenos-aires": "America/Argentina/Buenos_Aires",  # Wellington removed v3.1: noaa_gfs_v2_0 hangs
+    "buenos-aires": "America/Argentina/Buenos_Aires",
+    # v3.3: Tropical cities
+    "hong-kong": "Asia/Hong_Kong", "mumbai": "Asia/Kolkata",
+    "bangkok": "Asia/Bangkok", "dubai": "Asia/Dubai",
+    "mexico-city": "America/Mexico_City", "bogota": "America/Bogota",
+    "jakarta": "Asia/Jakarta", "istanbul": "Europe/Istanbul",
 }
 
 MONTHS = ["january","february","march","april","may","june",
@@ -837,6 +862,85 @@ def update_city_thresholds():
         }
 
 # =============================================================================
+# v3.4: Multi-Model Ensemble
+# =============================================================================
+
+def get_multi_model_ensemble(city_slug, dates):
+    """
+    v3.4: Fetch forecasts from 6 models via Open-Meteo for consensus.
+    Models: ECMWF, ICON, JMA, UKMO, METEOFRANCE, GEM
+    Returns: {date: {"mean": float, "spread": float, "members": list, "temps": dict}}
+    """
+    loc = LOCATIONS[city_slug]
+    unit = loc["unit"]
+    temp_unit = "fahrenheit" if unit == "F" else "celsius"
+    result = {}
+
+    models = {
+        "ecmwf": "ecmwf_ifs025",
+        "icon": "icon_seamless",
+        "jma": "jma_seamless",
+        "ukmo": "ukmo_seamless",
+        "meteofr": "meteofrance_seamless",
+        "gem": "gem_seamless",
+    }
+
+    try:
+        all_temps = {date: {} for date in dates}
+
+        for model_name, model_id in models.items():
+            try:
+                url = (
+                    f"https://api.open-meteo.com/v1/forecast"
+                    f"?latitude={loc['lat']}&longitude={loc['lon']}"
+                    f"&daily=temperature_2m_max&temperature_unit={temp_unit}"
+                    f"&forecast_days=7&timezone={TIMEZONES.get(city_slug, 'UTC')}"
+                    f"&models={model_id}"
+                )
+                data = requests.get(url, timeout=(5, 8)).json()
+
+                if "error" not in data and "daily" in data:
+                    for date in dates:
+                        if date in data["daily"]["time"]:
+                            idx = data["daily"]["time"].index(date)
+                            temp = data["daily"]["temperature_2m_max"][idx]
+                            if temp is not None:
+                                all_temps[date][model_name] = float(temp)
+            except Exception as e:
+                pass  # Silently skip failed models
+
+        for date, temps in all_temps.items():
+            if len(temps) < 3:
+                continue  # Need at least 3 models
+
+            values = list(temps.values())
+            mean_temp = sum(values) / len(values)
+            spread = max(values) - min(values)
+
+            # Consensus: remove outlier (furthest from mean) and recalculate
+            if len(values) >= 5:
+                deviations = {k: abs(v - mean_temp) for k, v in temps.items()}
+                outlier = max(deviations, key=deviations.get)
+                filtered = [v for k, v in temps.items() if k != outlier]
+                mean_temp = sum(filtered) / len(filtered)
+                spread_filtered = max(filtered) - min(filtered)
+            else:
+                spread_filtered = spread
+
+            result[date] = {
+                "mean": round(mean_temp, 1) if unit == "C" else round(mean_temp),
+                "spread": round(spread, 1),
+                "spread_filtered": round(spread_filtered, 1),
+                "members": list(temps.keys()),
+                "temps": {k: round(v, 1) for k, v in temps.items()},
+            }
+    except Exception as e:
+        print(f"  [MULTI_MODEL] {city_slug}: {e}")
+
+    return result
+
+
+# =============================================================================
 # CORE LOGIC
 # =============================================================================
 
@@ -846,6 +950,7 @@ def take_forecast_snapshot(city_slug, dates):
     ecmwf   = get_ecmwf(city_slug, dates)
     hrrr    = get_hrrr(city_slug, dates)
     gfs_ens = get_model_ensemble(city_slug, dates)
+    multi   = get_multi_model_ensemble(city_slug, dates)  # v3.4: multi-model consensus
     today   = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     snapshots = {}
@@ -861,6 +966,12 @@ def take_forecast_snapshot(city_slug, dates):
             "gfs_mean": gfs_data.get("mean") if gfs_data else None,
             "gfs_confidence": gfs_data.get("confidence") if gfs_data else None,
             "gfs_members": gfs_data.get("members") if gfs_data else 0,
+            # v3.4: multi-model consensus data
+            "multi_mean": multi.get(date, {}).get("mean") if multi else None,
+            "multi_spread": multi.get(date, {}).get("spread") if multi else None,
+            "multi_spread_filtered": multi.get(date, {}).get("spread_filtered") if multi else None,
+            "multi_members": multi.get(date, {}).get("members") if multi else [],
+            "multi_temps": multi.get(date, {}).get("temps") if multi else {},
         }
         
         # Apply METAR bias correction (#11)
@@ -874,7 +985,15 @@ def take_forecast_snapshot(city_slug, dates):
         # Weighted ensemble forecast (#5)
         weighted_temp, weighted_src = get_weighted_forecast(city_slug, date, snap)
         
-        if weighted_temp is not None:
+        # v3.4: Prefer multi-model consensus over single-model
+        multi_mean = snap.get("multi_mean")
+        multi_spread = snap.get("multi_spread")
+        
+        if multi_mean is not None and (multi_spread is None or multi_spread <= 5.0):
+            # Use multi-model consensus if spread is reasonable (<5C)
+            snap["best"] = multi_mean
+            snap["best_source"] = f"multi_model({len(snap.get('multi_members',[]))}models)"
+        elif weighted_temp is not None:
             snap["best"] = weighted_temp
             snap["best_source"] = weighted_src
         elif snap["ecmwf"] is not None:
@@ -1099,6 +1218,11 @@ def scan_and_update():
                 "gfs_mean":    snap.get("gfs_mean"),
                 "gfs_confidence": snap.get("gfs_confidence"),
                 "gfs_members":  snap.get("gfs_members"),
+                # v3.4: multi-model data
+                "multi_mean":     snap.get("multi_mean"),
+                "multi_spread":   snap.get("multi_spread"),
+                "multi_members":  snap.get("multi_members"),
+                "multi_temps":    snap.get("multi_temps"),
             }
             mkt["forecast_snapshots"].append(forecast_snap)
 
@@ -1239,18 +1363,33 @@ def scan_and_update():
                     if not in_bucket(forecast_temp, t_low, t_high):
                         continue
 
-                    # v3.1 Improvement #2: Reject narrow buckets (< 2°C width)
+                    # v3.2: Smart filtering — conf<15% reject + edge buckets need conf>=30%
                     bucket_width = t_high - t_low if t_low != -999 and t_high != 999 else 999
-                    if bucket_width < 2.0:
+                    is_edge_bucket = (t_low == -999 or t_high == 999)
+                    is_exact_bucket = (bucket_width == 0)
+
+                    # Reject very low confidence (<15%)
+                    if confidence is not None and confidence < 0.15:
                         continue
 
-                    # v3.1 Improvement #4: Margin of error — forecast must be >= 0.5°C inside bucket
-                    if t_low != -999 and t_high != 999 and bucket_width < 999:
-                        margin_low = forecast_temp - t_low
-                        margin_high = t_high - forecast_temp
-                        min_margin = min(margin_low, margin_high)
-                        if min_margin < 0.5:
+                    # Edge buckets (≥X or ≤X): require confidence >= 30%
+                    if is_edge_bucket and confidence is not None and confidence < 0.30:
+                        continue
+
+                    # Exact 1°C buckets: require confidence >= 50%
+                    if is_exact_bucket and confidence is not None and confidence < 0.50:
+                        continue
+
+                    # v3.4: Multi-model spread filter
+                    multi_spread = snap.get("multi_spread") if isinstance(snap, dict) else None
+                    if multi_spread is not None:
+                        if multi_spread > 5.0:
+                            # Models disagree heavily — BLOCK trade
                             continue
+                        elif multi_spread > 3.0:
+                            # Models moderately disagree — reduce bet 50%
+                            # (will be applied later in bet sizing)
+                            pass
 
                     bid    = o.get("bid", o["price"])
                     ask    = o.get("ask", o["price"])
@@ -1273,6 +1412,11 @@ def scan_and_update():
                     # v3.1 Improvement #5: Reduce bet for low confidence (<60%)
                     if confidence is not None and confidence < 0.60:
                         size = size * 0.5  # Half bet for low confidence
+                    
+                    # v3.4: Reduce bet if multi-model spread is high (3-5C)
+                    multi_spread = snap.get("multi_spread") if isinstance(snap, dict) else None
+                    if multi_spread is not None and 3.0 < multi_spread <= 5.0:
+                        size = size * 0.5  # Half bet for moderate disagreement
                     
                     # MEGA EDGE ALERT
                     mega_edge = False
