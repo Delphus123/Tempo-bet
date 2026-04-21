@@ -865,15 +865,42 @@ def update_city_thresholds():
 # v3.4: Multi-Model Ensemble
 # =============================================================================
 
+def _fetch_single_model(model_name, model_id, lat, lon, temp_unit, timezone, dates):
+    """Fetch forecast for a single model. Returns {date: temp} dict."""
+    result = {}
+    try:
+        url = (
+            f"https://api.open-meteo.com/v1/forecast"
+            f"?latitude={lat}&longitude={lon}"
+            f"&daily=temperature_2m_max&temperature_unit={temp_unit}"
+            f"&forecast_days=7&timezone={timezone}"
+            f"&models={model_id}"
+        )
+        data = requests.get(url, timeout=(5, 12)).json()
+        if "error" not in data and "daily" in data:
+            for date in dates:
+                if date in data["daily"]["time"]:
+                    idx = data["daily"]["time"].index(date)
+                    temp = data["daily"]["temperature_2m_max"][idx]
+                    if temp is not None:
+                        result[date] = float(temp)
+    except Exception:
+        pass
+    return model_name, result
+
+
 def get_multi_model_ensemble(city_slug, dates):
     """
-    v3.4: Fetch forecasts from 6 models via Open-Meteo for consensus.
+    v3.4: Fetch forecasts from 6 models via Open-Meteo in parallel.
     Models: ECMWF, ICON, JMA, UKMO, METEOFRANCE, GEM
     Returns: {date: {"mean": float, "spread": float, "members": list, "temps": dict}}
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     loc = LOCATIONS[city_slug]
     unit = loc["unit"]
     temp_unit = "fahrenheit" if unit == "F" else "celsius"
+    tz = TIMEZONES.get(city_slug, "UTC")
     result = {}
 
     models = {
@@ -886,28 +913,23 @@ def get_multi_model_ensemble(city_slug, dates):
     }
 
     try:
+        # Fetch all models in parallel (6 requests in parallel instead of sequential)
         all_temps = {date: {} for date in dates}
 
-        for model_name, model_id in models.items():
-            try:
-                url = (
-                    f"https://api.open-meteo.com/v1/forecast"
-                    f"?latitude={loc['lat']}&longitude={loc['lon']}"
-                    f"&daily=temperature_2m_max&temperature_unit={temp_unit}"
-                    f"&forecast_days=7&timezone={TIMEZONES.get(city_slug, 'UTC')}"
-                    f"&models={model_id}"
-                )
-                data = requests.get(url, timeout=(5, 8)).json()
-
-                if "error" not in data and "daily" in data:
-                    for date in dates:
-                        if date in data["daily"]["time"]:
-                            idx = data["daily"]["time"].index(date)
-                            temp = data["daily"]["temperature_2m_max"][idx]
-                            if temp is not None:
-                                all_temps[date][model_name] = float(temp)
-            except Exception as e:
-                pass  # Silently skip failed models
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            futures = {
+                executor.submit(
+                    _fetch_single_model, name, mid, loc["lat"], loc["lon"], temp_unit, tz, dates
+                ): name
+                for name, mid in models.items()
+            }
+            for future in as_completed(futures, timeout=20):
+                try:
+                    model_name, model_result = future.result(timeout=5)
+                    for date, temp in model_result.items():
+                        all_temps[date][model_name] = temp
+                except Exception:
+                    pass
 
         for date, temps in all_temps.items():
             if len(temps) < 3:
