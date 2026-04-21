@@ -215,7 +215,7 @@ export default function App() {
     <div className="min-h-screen bg-bg p-4 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6 animate-fade-in">
-        <h1 className="text-2xl font-bold text-primary">Tempo-Bet v3.0</h1>
+        <h1 className="text-2xl font-bold text-primary">Tempo-Bet v3.4</h1>
         <div className="flex items-center gap-1.5">
           <div className="w-2.5 h-2.5 rounded-full bg-success animate-pulse-live" />
           <span className="text-success text-xs font-semibold">LIVE</span>

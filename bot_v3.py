@@ -96,7 +96,8 @@ ALLOWED_CITIES = [
     "mexico-city", # Subtropical altitude - moderate
     "bogota",      # Tropical altitude - stable
     "jakarta",     # Tropical equatorial - very stable
-    "istanbul",    # Temperate - market active
+    "manila",      # v3.4.2: Tropical monsoon - spread 2.5°C, vol $6.9K
+    "madrid",      # v3.4.2: Mediterranean - spread 2.1°C, vol $3.9K
 ]
 
 # Blocked cities (poor accuracy historically) — can be overridden dynamically (#12)
@@ -165,7 +166,8 @@ LOCATIONS = {
     "mexico-city": {"lat":  19.4326, "lon":  -99.1332, "name": "Mexico City",  "station": "MMMX", "unit": "C", "region": "na"},
     "bogota":      {"lat":   4.7110, "lon":  -74.0721, "name": "Bogota",       "station": "SKBO", "unit": "C", "region": "sa"},
     "jakarta":     {"lat":  -6.2088, "lon":  106.8456, "name": "Jakarta",      "station": "WIII", "unit": "C", "region": "asia"},
-    "istanbul":    {"lat":  41.2753, "lon":   28.7229, "name": "Istanbul",     "station": "LTFM", "unit": "C", "region": "eu"},
+    "manila":      {"lat":  14.5995, "lon":  120.9842, "name": "Manila",       "station": "RPLL", "unit": "C", "region": "asia"},
+    "madrid":      {"lat":  40.4168, "lon":  -3.7038, "name": "Madrid",       "station": "LEMD", "unit": "C", "region": "eu"},
 }
 
 TIMEZONES = {
@@ -183,7 +185,7 @@ TIMEZONES = {
     "hong-kong": "Asia/Hong_Kong", "mumbai": "Asia/Kolkata",
     "bangkok": "Asia/Bangkok", "dubai": "Asia/Dubai",
     "mexico-city": "America/Mexico_City", "bogota": "America/Bogota",
-    "jakarta": "Asia/Jakarta", "istanbul": "Europe/Istanbul",
+    "jakarta": "Asia/Jakarta", "manila": "Asia/Manila", "madrid": "Europe/Madrid",
 }
 
 MONTHS = ["january","february","march","april","may","june",
