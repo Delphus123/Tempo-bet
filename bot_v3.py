@@ -111,6 +111,7 @@ BLOCKED_CITIES = [
     "dallas",      # Unknown
     "shanghai",    # API blocked — Open-Meteo inaccessible from China region
     "wellington",  # API error — noaa_gfs_v2_0 hangs on Open-Meteo
+    "istanbul",    # v3.4.1: Polymarket market returns 0 outcomes, hangs scan
 ]
 
 # Dynamic blocked cities (#12) — populated at runtime
