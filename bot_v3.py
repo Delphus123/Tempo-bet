@@ -115,6 +115,7 @@ BLOCKED_CITIES = [
     "istanbul",    # v3.4.1: Polymarket market returns 0 outcomes, hangs scan
     "buenos-aires", # v3.4.2: 0/3 losses — forecast precise but bucket edge misplacement
     "london",       # v3.5: 0W/6L in 14 days — -$300 drain, model consistently wrong
+    "hong-kong",   # v3.7: backtest 32W/53L, pior cidade — desalinhamento resolução local vs UTC
 ]
 
 # Dynamic blocked cities (#12) — populated at runtime
@@ -299,7 +300,9 @@ def run_calibration(markets):
     v3.0 (#7): Sigma optimized via grid search to minimize Brier score
         instead of sigma = MAE.
     """
-    resolved = [m for m in markets if m.get("resolved") and m.get("actual_temp") is not None]
+    # v3.7: campo correto e "status" (bug: "resolved" nunca existiu nos dados,
+    # entao a calibracao sigma/Brier nunca rodou — sigma ficava no default 1.2)
+    resolved = [m for m in markets if m.get("status") == "resolved" and m.get("actual_temp") is not None]
     cal = load_cal()
     updated = []
 
@@ -1222,7 +1225,11 @@ def scan_and_update():
                     continue
                 
                 bid = yes_price
-                ask = no_price
+                # v3.7: ask = yes_price (preco real de compra do YES).
+                # Antes: ask = no_price (=1-yes), o que inflava o EV (calculado
+                # em preco ~2x menor que o pago) e o spread = 1-2*yes bloqueava
+                # todos os buckets com yes < 0.485 — exatamente onde esta o edge.
+                ask = yes_price
                 
                 outcomes.append({
                     "question":  question,
