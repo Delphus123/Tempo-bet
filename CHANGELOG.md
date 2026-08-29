@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.7.1] - 2026-08-29
+
+### Fixed
+- **Calibrated sigma never used at bet time (CRITICAL)** — `get_sigma()` / `get_brier_score()` looked up keys like `manila_multi_model(6models)`, which never exist in `calibration.json` (keys are `{city}_{source}`, e.g. `manila_ecmwf`). Result: every multi-model trade silently fell back to the default sigma=1.2 instead of the calibrated value (e.g. Manila 0.5, Madrid 0.7), inflating uncertainty and distorting CDF probabilities at bet time. Added `_normalize_source()` mapping `multi_model(...)` → `ecmwf`.
+  - Verified: manila 1.2→0.5, tokyo 1.2→0.5, madrid 1.2→0.7, paris 1.2→1.0
+
+## [v3.7] - 2026-08-29
+
+### Fixed
+- **EV/Kelly computed on wrong price (CRITICAL)** — price collection used `ask = no_price` while the bot actually buys YES at `yes_price`. This inflated EV ~2x (e.g. yes=$0.555, p=0.6 → real EV +0.08, computed +0.35), generating fake mega-edges and oversized Kelly bets.
+- **Calibration never ran (CRITICAL)** — `run_calibration()` filtered markets on `m.get("resolved")`, a field that does not exist in `data/markets/*.json` (correct: `status == "resolved"` + non-null `actual_temp`). Calibration saw 0 markets and never wrote sigmas; now writes 21 per-city keys (sigma 0.5–1.0, confirming backtest optimum ≈0.5–0.7).
+- **Spread filter blocked the profitable buckets** — `spread = no − yes = 1 − 2·yes` only admitted yes ≥ 0.485, exactly excluding the cheap buckets where the backtest found the edge. Resolved by the ask-price fix above.
+
+### Changed
+- **Blocked cities**: added `hong-kong` (backtest 32W/53L, worst city — local vs UTC resolution misalignment); `london` was already blocked since v3.5 (0W/6L in 14 days, −$300).
+
+---
+
 ## [v3.1] - 2026-04-12
 
 ### Added
