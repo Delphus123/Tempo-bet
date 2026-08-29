@@ -49,7 +49,7 @@ with open("config.json", encoding="utf-8") as f:
 BALANCE          = _cfg.get("balance", 10000.0)
 MAX_BET          = _cfg.get("max_bet", 25.0)        # max bet per trade
 MIN_EV           = _cfg.get("min_ev", 0.10)  # 10% - balanced for better coverage
-MAX_PRICE        = _cfg.get("max_price", 0.65)  # v3.2: restored from 0.55 — data showed expensive entries were profitable
+MAX_PRICE        = _cfg.get("max_price", 0.70)  # v3.5: backtest shows 0.70 is optimal (0% WR above 0.70)
 MIN_VOLUME       = _cfg.get("min_volume", 10000)  # $10k - increased for liquidity
 MIN_HOURS        = _cfg.get("min_hours", 2.0)
 MAX_HOURS        = _cfg.get("max_hours", 72.0)
@@ -114,6 +114,7 @@ BLOCKED_CITIES = [
     "wellington",  # API error — noaa_gfs_v2_0 hangs on Open-Meteo
     "istanbul",    # v3.4.1: Polymarket market returns 0 outcomes, hangs scan
     "buenos-aires", # v3.4.2: 0/3 losses — forecast precise but bucket edge misplacement
+    "london",       # v3.5: 0W/6L in 14 days — -$300 drain, model consistently wrong
 ]
 
 # Dynamic blocked cities (#12) — populated at runtime
@@ -200,13 +201,17 @@ def norm_cdf(x):
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
 
 def bucket_prob(forecast, t_low, t_high, sigma=None):
-    """For regular buckets — exact match. For edge buckets — normal distribution."""
+    """v3.6: P(bucket) via normal CDF com correção de continuidade (±0.5).
+    Buckets exatos são tratados como [low-0.5, high+0.5] — o mercado resolve
+    por arredondamento, nunca com probabilidade 1.0."""
     s = sigma or 2.0
+    f = float(forecast)
     if t_low == -999:
-        return norm_cdf((t_high - float(forecast)) / s)
+        return norm_cdf((t_high + 0.5 - f) / s)
     if t_high == 999:
-        return 1.0 - norm_cdf((t_low - float(forecast)) / s)
-    return 1.0 if in_bucket(forecast, t_low, t_high) else 0.0
+        return 1.0 - norm_cdf((t_low - 0.5 - f) / s)
+    # Bucket contínuo ou exato: P(t_low - 0.5 < T_max <= t_high + 0.5)
+    return norm_cdf((t_high + 0.5 - f) / s) - norm_cdf((t_low - 0.5 - f) / s)
 
 def calc_ev(p, price):
     if price <= 0 or price >= 1: return 0.0
@@ -305,27 +310,26 @@ def run_calibration(markets):
             forecast_actual_pairs = []  # (forecast_temp, actual_temp) for sigma grid search
             
             for m in group:
-                # Find forecast snapshot for this source
+                pos = m.get("position")
+                # v3.6: aceita qualquer fonte, inclusive multi_model (usar snap["best"])
                 snap = None
                 for s in reversed(m.get("forecast_snapshots", [])):
-                    if s.get("best_source") == source or source in s.get("best_source", ""):
+                    if s.get("best_source") and s.get("best") is not None:
                         snap = s
                         break
-                
+
                 if not snap or snap.get("best") is None:
                     continue
-                    
+
                 forecast_temp = snap["best"]
                 actual_temp = m["actual_temp"]
                 forecast_actual_pairs.append((forecast_temp, actual_temp))
-                
-                # Calculate Brier Score with price impact adjustment (#2)
-                if m.get("position"):
-                    predicted_prob = m["position"].get("p", 0.5)
-                    entry_price = m["position"].get("entry_price", 0.5)
+
+                # v3.6: Brier Score padrao: (p - outcome)^2 — sem ajuste por preco
+                if pos:
+                    predicted_prob = pos.get("p", 0.5)
                     actual_outcome = 1 if m["resolved_outcome"] == "win" else 0
-                    # Price-adjusted Brier (#2): brier = ((p * price) - actual)²
-                    brier = ((predicted_prob * entry_price) - actual_outcome) ** 2
+                    brier = (predicted_prob - actual_outcome) ** 2
                     brier_scores.append(brier)
             
             if len(forecast_actual_pairs) < CALIBRATION_MIN:
@@ -339,14 +343,13 @@ def run_calibration(markets):
             bucket_pairs = []
             for m in group:
                 pos = m.get("position")
-                if not pos:
-                    continue
+                # v3.6: usa último snapshot com forecast (qualquer fonte, incl. multi_model)
                 snap = None
                 for s in reversed(m.get("forecast_snapshots", [])):
-                    if s.get("best_source") == source or source in s.get("best_source", ""):
+                    if s.get("best_source") and s.get("best") is not None:
                         snap = s
                         break
-                if snap and snap.get("best") is not None:
+                if pos and snap and snap.get("best") is not None:
                     bucket_pairs.append({
                         "forecast": snap["best"],
                         "actual": m["actual_temp"],
@@ -356,14 +359,15 @@ def run_calibration(markets):
                     })
             
             if bucket_pairs:
+                # v3.6: otimiza sigma contra (p - outcome)^2 em TODOS os buckets
+                # resolvidos da cidade (com ou sem posicao), usando o novo bucket_prob
                 for sigma_try in [round(s * 0.1, 1) for s in range(5, 51)]:  # 0.5 to 5.0
                     brier_sum = 0.0
                     count = 0
                     for bp in bucket_pairs:
                         p = bucket_prob(bp["forecast"], bp["t_low"], bp["t_high"], sigma_try)
                         actual = 1.0 if bp["won"] else 0.0
-                        entry_p = bp.get("entry_price", 0.5)
-                        brier_sum += ((p * entry_p) - actual) ** 2
+                        brier_sum += (p - actual) ** 2
                         count += 1
                     if count > 0:
                         avg_brier = brier_sum / count
@@ -733,9 +737,15 @@ def load_market(city_slug, date_str):
         return json.loads(p.read_text(encoding="utf-8"))
     return None
 
+def _atomic_write(path: Path, content: str):
+    """v3.6: escrita atomica — evita JSON corrompido em crash."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)
+
 def save_market(market):
     p = market_path(market["city"], market["date"])
-    p.write_text(json.dumps(market, indent=2, ensure_ascii=False), encoding="utf-8")
+    _atomic_write(p, json.dumps(market, indent=2, ensure_ascii=False))
 
 def load_all_markets():
     markets = []
@@ -785,7 +795,7 @@ def load_state():
     }
 
 def save_state(state):
-    STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+    _atomic_write(STATE_FILE, json.dumps(state, indent=2, ensure_ascii=False))
 
 # =============================================================================
 # DYNAMIC BLOCKED CITIES (#12)
@@ -1358,15 +1368,8 @@ def scan_and_update():
             if not mkt.get("position") and forecast_temp is not None and hours >= MIN_HOURS:
                 sigma = get_sigma(city_slug, best_source or "ecmwf")
                 
-                # v3.1 Improvement #3: Apply bias correction before bucket selection
-                bias_corrected_temp = forecast_temp
-                cal_data = load_cal()
-                bias_key = f"{city_slug}_{best_source or 'ecmwf'}"
-                if bias_key in cal_data and cal_data[bias_key].get("bias") is not None:
-                    bias = cal_data[bias_key]["bias"]
-                    if abs(bias) >= 0.5:  # Only correct if bias is significant
-                        bias_corrected_temp = round(forecast_temp - bias, 1)
-                        forecast_temp = bias_corrected_temp
+                # v3.6: bias correction JA foi aplicada na snapshot (take_forecast_snapshot).
+                # A dupla aplicacao foi removida — forecast_temp segue como esta.
                         
                 # Get GFS ensemble confidence for this date
                 confidence = snap.get("gfs_confidence")
@@ -1427,6 +1430,14 @@ def scan_and_update():
                     if ask >= MAX_PRICE or volume < MIN_VOLUME:
                         continue
 
+                    # v3.5: Edge distance filter — reject exact buckets where forecast < 0.2°C from edge
+                    # Backtest (47 markets): +$197 PnL, 70%→83% WR
+                    if is_exact_bucket and forecast_temp is not None:
+                        edge_dist = min(abs(forecast_temp - t_low), abs(forecast_temp - t_high))
+                        if edge_dist < 0.2:
+                            print(f"  [EDGE DIST] {loc['name']} {date}: fcst={forecast_temp:.1f} bucket={t_low}-{t_high} dist={edge_dist:.1f}° — SKIP")
+                            continue
+
                     p  = bucket_prob(forecast_temp, t_low, t_high, sigma)
                     ev = calc_ev(p, ask)
                     if ev < min_ev:
@@ -1448,7 +1459,7 @@ def scan_and_update():
                     mega_edge = False
                     if ev >= 0.50:
                         mega_edge = True
-                        size = min(size * 2.5, MAX_BET * 2)
+                        size = min(size * 2.5, MAX_BET)  # v3.5: cap mega-edge at MAX_BET (no 2x override)
                         print(f"  [🔥 MEGA EDGE!] {loc['name']} {date} | EV: {ev:.0%} | Size: ${size:.2f}")
                         if TELEGRAM_ENABLED:
                             try:
@@ -1529,7 +1540,10 @@ def scan_and_update():
                     balance -= best_signal["cost"]
                     mkt["position"] = best_signal
                     state["total_trades"] += 1
+                    state["balance"] = round(balance, 2)
                     new_pos += 1
+                    # v3.6: persiste estado imediatamente apos abrir trade
+                    save_state(state)
                     bucket_label = f"{best_signal['bucket_low']}-{best_signal['bucket_high']}{unit_sym}"
                     reason_tag = f" [{best_signal['trade_reason']}]" if best_signal.get('trade_reason') else ""
                     print(f"  [BUY]  {loc['name']} {horizon} {date} | {bucket_label} | "
