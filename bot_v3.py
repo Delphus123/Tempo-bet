@@ -277,18 +277,27 @@ def load_cal():
         return json.loads(CALIBRATION_FILE.read_text(encoding="utf-8"))
     return {}
 
+def get_brier_score(city_slug, source="ecmwf"):
+    """Get Brier Score for a source. Returns 0.25 if no data (default uncertain)."""
+    key = f"{city_slug}_{_normalize_source(source)}"
+    if key in _cal and "brier_score" in _cal[key]:
+        return _cal[key]["brier_score"]
+    return 0.25  # Default uncertain prediction
+
+# v3.7.1: fontes "multi_model(Nmodels)" (e outras derivadas) nao têm chave própria
+# na calibração — normalizar para a chave por cidade. Sem isso, get_sigma caía no
+# default 1.2 e o sigma calibrado nunca era usado na hora de apostar.
+def _normalize_source(source):
+    if source and source.startswith("multi_model"):
+        return "ecmwf"
+    return source or "ecmwf"
+
 def get_sigma(city_slug, source="ecmwf"):
+    source = _normalize_source(source)
     key = f"{city_slug}_{source}"
     if key in _cal and "sigma" in _cal[key]:
         return _cal[key]["sigma"]
     return SIGMA_F if LOCATIONS[city_slug]["unit"] == "F" else SIGMA_C
-
-def get_brier_score(city_slug, source="ecmwf"):
-    """Get Brier Score for a source. Returns 0.25 if no data (default uncertain)."""
-    key = f"{city_slug}_{source}"
-    if key in _cal and "brier_score" in _cal[key]:
-        return _cal[key]["brier_score"]
-    return 0.25  # Default uncertain prediction
 
 def run_calibration(markets):
     """
