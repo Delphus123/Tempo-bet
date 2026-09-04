@@ -116,10 +116,52 @@ BLOCKED_CITIES = [
     "buenos-aires", # v3.4.2: 0/3 losses — forecast precise but bucket edge misplacement
     "london",       # v3.5: 0W/6L in 14 days — -$300 drain, model consistently wrong
     "hong-kong",   # v3.7: backtest 32W/53L, pior cidade — desalinhamento resolução local vs UTC
+    "sao-paulo",   # v3.9: σ empírica 1.67 + bias +0.92 (71k snapshots) — 4L nas últimas 72h
+    "lucknow",     # v3.9: σ empírica 2.20 — modelo impreciso demais p/ bucket de 1°C
+    "jakarta",     # v3.9: σ empírica 1.75 — idem
 ]
 
 # Dynamic blocked cities (#12) — populated at runtime
 DYNAMIC_BLOCKED_CITIES = set()
+
+# v3.9: σ empírica por cidade (°C) — erro total (actual − forecast best) medido em
+# ~71k snapshots de mercados resolvidos, todas horizontes. Fonte: análise 04/09/26.
+EMPIRICAL_SIGMA = {
+    "madrid":       0.69,
+    "munich":       0.14,  # n=39, pouco dado — piso 1.0 aplica
+    "wellington":   0.62,  # n=95 — piso 1.0 aplica
+    "london":       0.72,  # bloqueada por outro motivo
+    "buenos-aires": 0.92,  # bloqueada por outro motivo
+    "tel-aviv":     0.74,
+    "hong-kong":    1.19,  # bloqueada
+    "singapore":    1.06,
+    "manila":       1.11,
+    "toronto":      1.20,
+    "seoul":        1.20,
+    "mexico-city":  1.31,
+    "tokyo":        1.33,
+    "paris":        1.27,
+    "sao-paulo":    1.67,  # bloqueada
+    "lucknow":      2.20,  # bloqueada
+    "jakarta":      1.75,  # bloqueada
+}
+# v3.9: bias empírico por cidade (actual − forecast, média) para correção aditiva
+# no forecast antes de calcular p. Pequeno (-0.85 a +0.92), mas desloca buckets.
+EMPIRICAL_BIAS = {
+    "tel-aviv":     -0.33,
+    "hong-kong":    +0.46,
+    "madrid":       +0.20,
+    "manila":       +0.15,
+    "tokyo":        -0.29,
+    "singapore":    +0.15,
+    "paris":        +0.74,
+    "mexico-city":  -0.85,
+    "seoul":        -0.63,
+    "toronto":      -0.21,
+    "buenos-aires": -0.20,
+    "wellington":   -0.61,
+    "munich":       +0.06,
+}
 
 # City-specific auto-redemption thresholds (#6)
 CITY_THRESHOLDS = {}
@@ -294,10 +336,23 @@ def _normalize_source(source):
 
 def get_sigma(city_slug, source="ecmwf"):
     source = _normalize_source(source)
+    unit_default = SIGMA_F if LOCATIONS[city_slug]["unit"] == "F" else SIGMA_C
+    # v3.9: σ empírica por cidade, medida em ~71k snapshots de mercados resolvidos
+    # (erro actual − forecast "best"). Substitui grid-search de amostras pequenas:
+    # o grid calibrava σ=0.5 com n=45 (pseudo-certeza) — σ real é 0.6-1.7 por cidade.
+    # Nota: inclui bias, não subtrai a média — é a σ de erro TOTAL, que é o que
+    # importa para P(bucket). Cidades não listadas usam default da unidade.
+    emp = EMPIRICAL_SIGMA.get(city_slug)
+    if emp is not None:
+        return max(emp, 1.0)
     key = f"{city_slug}_{source}"
     if key in _cal and "sigma" in _cal[key]:
-        return _cal[key]["sigma"]
-    return SIGMA_F if LOCATIONS[city_slug]["unit"] == "F" else SIGMA_C
+        cal_sigma = _cal[key]["sigma"]
+        n = _cal[key].get("n", 0)
+        # v3.8: só confia no sigma calibrado com n>=100 E sigma>=1.0.
+        if n >= 100 and cal_sigma >= 1.0:
+            return max(cal_sigma, 1.0)
+    return unit_default
 
 def run_calibration(markets):
     """
@@ -373,7 +428,7 @@ def run_calibration(markets):
             if bucket_pairs:
                 # v3.6: otimiza sigma contra (p - outcome)^2 em TODOS os buckets
                 # resolvidos da cidade (com ou sem posicao), usando o novo bucket_prob
-                for sigma_try in [round(s * 0.1, 1) for s in range(5, 51)]:  # 0.5 to 5.0
+                for sigma_try in [round(s * 0.1, 1) for s in range(10, 51)]:  # v3.8: 1.0 to 5.0 (piso 1.0)
                     brier_sum = 0.0
                     count = 0
                     for bp in bucket_pairs:
@@ -653,8 +708,11 @@ def apply_bias_correction(forecast, city_slug, source):
     cal = load_cal()
     key = f"{city_slug}_{source}"
     if key in cal and cal[key].get("bias") is not None:
-        return round(forecast - cal[key]["bias"], 1)
-    return forecast
+        forecast = forecast - cal[key]["bias"]
+    # v3.9: bias empírico adicional (71k snapshots: actual − forecast best).
+    # Corrige deslocamento sistemático que o bias METAR não captura.
+    forecast = forecast + EMPIRICAL_BIAS.get(city_slug, 0.0)
+    return round(forecast, 1)
 
 def update_forecast_bias(city_slug):
     """
@@ -1081,6 +1139,12 @@ def find_edge_signal(outcomes, forecast_temp, source, sigma, confidence, balance
         if abs(p - bid) < 0.05:
             continue
 
+        # v3.8: mesmos filtros de sanidade do fluxo principal
+        if bid < 0.10:
+            continue
+        if p > max(3.0 * bid, bid + 0.10):
+            continue
+
         ev = calc_ev(p, bid)
 
         min_ev_edge = 0.05
@@ -1293,6 +1357,32 @@ def scan_and_update():
             # --- STOP-LOSS AND TRAILING STOP ---
             if mkt.get("position") and mkt["position"].get("status") == "open":
                 pos = mkt["position"]
+
+                # v3.9: FORECAST STOP — se o forecast driftou >0.8° do bucket apostado,
+                # a tese morreu: sair no preço atual (losers das 72h driftaram +1.0°
+                # em média e foram a zero). Só para buckets exatos.
+                if (
+                    forecast_temp is not None
+                    and pos.get("bucket_low") is not None
+                    and pos.get("bucket_low") == pos.get("bucket_high")
+                    and abs(forecast_temp - pos["bucket_low"]) > 0.8
+                ):
+                    _fc_price = None
+                    for o in outcomes:
+                        if o["market_id"] == pos["market_id"]:
+                            _fc_price = o.get("bid", o["price"])
+                            break
+                    if _fc_price is not None:
+                        pnl = round((_fc_price - pos["entry_price"]) * pos["shares"], 2)
+                        balance += pos["cost"] + pnl
+                        pos["closed_at"]    = snap.get("ts")
+                        pos["close_reason"] = "forecast_stop"
+                        pos["exit_price"]   = _fc_price
+                        pos["pnl"]          = pnl
+                        pos["status"]       = "closed"
+                        closed += 1
+                        print(f"  [FC-STOP] {loc['name']} {date}: fc {forecast_temp:.1f} vs bucket {pos['bucket_low']:.0f} | exit ${_fc_price:.3f} | PnL: {'+' if pnl>=0 else ''}{pnl:.2f}")
+
                 current_price = None
                 for o in outcomes:
                     if o["market_id"] == pos["market_id"]:
@@ -1384,6 +1474,30 @@ def scan_and_update():
             if not mkt.get("position") and forecast_temp is not None and hours >= MIN_HOURS:
                 sigma = get_sigma(city_slug, best_source or "ecmwf")
                 
+                # v3.8: filtro day-of (D+0) — se o METAR já observou temp máxima
+                # acima/abaixo do range relevante, o dia já decidiu: não apostar.
+                # O mercado sabe disso (por isso buckets mortos custam $0.0005).
+                if horizon == "D+0" and snap.get("metar") is not None:
+                    metar_t = float(snap["metar"])
+                    # só aplica quando falta pouco (<=6h para o fim do dia local)
+                    if hours <= 6:
+                        dead = False
+                        for o in outcomes:
+                            tl, th = o["range"]
+                            ol = o.get("ask", o.get("price", 1)) or 1
+                            if ol >= 0.90:  # mercado quase certo de SIM -> dia decidido contra outros
+                                continue
+                            if tl != -999 and th != 999 and metar_t > th + 0.5 and ol < 0.05:
+                                dead = True
+                                break
+                            if tl != -999 and metar_t >= tl and th != 999 and metar_t <= th:
+                                continue
+                        # se temp já observada excede o bucket com forecast, skip geral:
+                        # maxima só sobe; se metar_t já > bucket + 0.5, impossível.
+                        if dead:
+                            print(f"  [DAY-OF] {loc['name']}: METAR {metar_t}°C já acima de bucket morto — skip D+0")
+                            continue
+                
                 # v3.6: bias correction JA foi aplicada na snapshot (take_forecast_snapshot).
                 # A dupla aplicacao foi removida — forecast_temp segue como esta.
                         
@@ -1446,6 +1560,12 @@ def scan_and_update():
                     if ask >= MAX_PRICE or volume < MIN_VOLUME:
                         continue
 
+                    # v3.8: preço mínimo de entrada — orderbook vazio não é edge.
+                    # Trades a <0.05 pagam $25 por liquidez inexistente (50k shares
+                    # a $0.0005) e perderam 0/4 (-$100) nas últimas 48h.
+                    if ask < 0.10:
+                        continue
+
                     # v3.5: Edge distance filter — reject exact buckets where forecast < 0.2°C from edge
                     # Backtest (47 markets): +$197 PnL, 70%→83% WR
                     if is_exact_bucket and forecast_temp is not None:
@@ -1454,8 +1574,37 @@ def scan_and_update():
                             print(f"  [EDGE DIST] {loc['name']} {date}: fcst={forecast_temp:.1f} bucket={t_low}-{t_high} dist={edge_dist:.1f}° — SKIP")
                             continue
 
-                    p  = bucket_prob(forecast_temp, t_low, t_high, sigma)
+                    p_model = bucket_prob(forecast_temp, t_low, t_high, sigma)
+
+                    # v3.9: BLEND modelo+mercado. O preço da Polymarket é preditor
+                    # tão bom quanto o modelo (WR real ≈ preço de entrada nos 558
+                    # trades). p_blend evita apostar quando modelo e mercado brigam.
+                    p = round(0.5 * p_model + 0.5 * ask, 4)
+
+                    # v3.9: gate de acertividade — entrar SÓ na faixa de 60-70% WR
+                    # real (dados: entradas $0.50-0.75 → 62% WR; p 0.65-0.8 → 91%).
+                    if p < 0.55:
+                        continue
+                    if ask > 0.45:
+                        continue
+
                     ev = calc_ev(p, ask)
+
+                    # v3.8: consistência p vs mercado — se o modelo diz MUITO mais
+                    # que o preço (p > 3x ask), quase sempre o modelo está errado,
+                    # não o mercado (mercado vê a temp já observada, orderbook seco).
+                    if p_model > max(3.0 * ask, ask + 0.10):
+                        continue
+
+                    # v3.9: estabilidade do forecast — nos 17 losers das últimas 72h
+                    # o fc driftou em média +1.0° depois da entrada. Exigir que os
+                    # 2 últimos snapshots concordem em <=0.3°.
+                    if is_exact_bucket:
+                        recent = [s for s in (mkt.get("forecast_snapshots") or []) if s.get("best") is not None][-2:]
+                        if len(recent) == 2 and abs(recent[0]["best"] - recent[1]["best"]) > 0.3:
+                            print(f"  [STABILITY] {loc['name']} {date}: fc drift {recent[0]['best']:.1f}->{recent[1]['best']:.1f} — SKIP")
+                            continue
+
                     if ev < min_ev:
                         continue
 
@@ -1465,6 +1614,10 @@ def scan_and_update():
                     # v3.1 Improvement #5: Reduce bet for low confidence (<60%)
                     if confidence is not None and confidence < 0.60:
                         size = size * 0.5  # Half bet for low confidence
+
+                    # v3.9: p_blend baixo = trade marginal — reduz exposição
+                    if p < 0.60:
+                        size = size * 0.5
                     
                     # v3.4: Reduce bet if multi-model spread is high (3-5C)
                     multi_spread = snap.get("multi_spread") if isinstance(snap, dict) else None

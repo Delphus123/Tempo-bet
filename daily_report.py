@@ -1,166 +1,170 @@
 #!/usr/bin/env python3
-"""daily_report.py — Relatório diário do Tempo-bet (roda 06:00 via cron).
-
-Métricas:
-- Entradas (apostas abertas) nas últimas 24h
-- Número de apostas e percentual de acertividade (resoluções nas últimas 24h)
-- Médias da última semana (apostas/dia, acertividade 7d, P&L 7d)
-Envia via Telegram (telegram_alerts) e salva em data/reports/.
 """
-import json
-import glob
-import os
-import sys
+Relatório diário do Tempo-Bet — rodar todo dia às 6h via cron.
+Gera: trades das últimas 24h (abertos/fechados/resolvidos), WR, PnL,
+saldo, posições abertas, top/bottom cidades e forecast acurácia.
+Envia via Telegram (telegram_alerts.py) e salva cópia em data/reports/.
+"""
+import json, glob, sys, os
 from datetime import datetime, timedelta, timezone
 
-BASE = os.path.dirname(os.path.abspath(__file__))
-MARKETS = os.path.join(BASE, "data", "markets")
-REPORTS = os.path.join(BASE, "data", "reports")
-STATE = os.path.join(BASE, "data", "state.json")
-os.makedirs(REPORTS, exist_ok=True)
+PROJ = "/home/hal9000/Projects/Tempo-bet"
+sys.path.insert(0, PROJ)
+from telegram_alerts import send_telegram_message
 
-BRL = None  # não usado, reservado
+REPORTS_DIR = os.path.join(PROJ, "data", "reports")
+os.makedirs(REPORTS_DIR, exist_ok=True)
 
+now = datetime.now(timezone.utc)
+cutoff = now - timedelta(hours=24)
+today = now.strftime("%Y-%m-%d")
 
-def load_state():
+def parse_ts(s):
+    if not s: return None
     try:
-        with open(STATE) as fp:
-            return json.load(fp)
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
     except Exception:
-        return {}
+        return None
 
-
-def trade_summary(m, fname):
-    pos = m.get("position") or {}
-    return {
-        "file": fname,
-        "city": m.get("city") or fname.split("_")[0],
-        "date": m.get("date") or fname.split("_", 1)[1].replace(".json", "") if "_" in fname else "?",
-        "bucket": pos.get("bucket_low"),
-        "entry_price": pos.get("entry_price"),
-        "cost": pos.get("cost"),
-        "opened_at": pos.get("opened_at"),
-        "status": m.get("status"),
-        "p": pos.get("p"),
-        "ev": pos.get("ev"),
-    }
-
-
-def main():
-    now = datetime.now(timezone.utc)
-    cutoff_24h = now - timedelta(hours=24)
-    cutoff_7d = now - timedelta(days=7)
-
-    entries_24h, resolved_24h, wins_24h, pnl_24h = [], 0, 0, 0.0
-    entries_7d, resolved_7d, wins_7d, pnl_7d = 0, 0, 0, 0.0
-    open_positions = []
-
-    for f in glob.glob(os.path.join(MARKETS, "*.json")):
-        fname = os.path.basename(f)
-        try:
-            with open(f) as fp:
-                m = json.load(fp)
-        except Exception:
-            continue
-        pos = m.get("position")
-        status = m.get("status")
-        if pos:
-            opened = pos.get("opened_at")
-            opened_dt = None
-            if opened:
-                try:
-                    opened_dt = datetime.fromisoformat(opened.replace("Z", "+00:00"))
-                except Exception:
-                    opened_dt = None
-            if opened_dt and opened_dt >= cutoff_24h:
-                entries_24h.append(trade_summary(m, fname))
-            if opened_dt and opened_dt >= cutoff_7d:
-                entries_7d += 1
-            if status == "open":
-                open_positions.append(trade_summary(m, fname))
-        if status == "resolved":
-            # data de resolução: usar mtime como aproximação se não houver campo
-            resolved_field = m.get("resolved_at") or pos.get("resolved_at") if pos else None
-            if resolved_field:
-                try:
-                    rdt = datetime.fromisoformat(resolved_field.replace("Z", "+00:00"))
-                except Exception:
-                    rdt = None
-            else:
-                rdt = datetime.fromtimestamp(os.path.getmtime(f), tz=timezone.utc)
-            actual = m.get("actual_temp")
-            won = None
-            if pos and actual is not None:
-                lo = pos.get("bucket_low")
-                hi = pos.get("bucket_high", lo)
-                if lo is not None:
-                    won = (lo <= actual <= hi)
-            pnl = 0.0
-            if pos and won is not None:
-                entry = pos.get("entry_price") or 0
-                cost = pos.get("cost") or 0
-                pnl = (cost / entry - cost) if won else -cost
-            if rdt and rdt >= cutoff_24h:
-                resolved_24h += 1
-                if won:
-                    wins_24h += 1
-                pnl_24h += pnl
-            if rdt and rdt >= cutoff_7d:
-                resolved_7d += 1
-                if won:
-                    wins_7d += 1
-                pnl_7d += pnl
-
-    def pct(w, r):
-        return f"{100.0 * w / r:.0f}%" if r else "—"
-
-    state = load_state()
-    saldo = state.get("balance")
-
-    lines = []
-    lines.append("📊 *TEMPO-BET — RELATÓRIO DIÁRIO*")
-    lines.append(f"_{datetime.now().strftime('%d/%m/%Y %H:%M')}_")
-    lines.append("")
-    if saldo is not None:
-        lines.append(f"💰 Saldo: ${saldo:,.2f}")
-        lines.append("")
-    lines.append("🆕 *Últimas 24h*")
-    lines.append(f"• Entradas: {len(entries_24h)}")
-    for t in entries_24h:
-        lines.append(f"  ▸ {t['city'].title()} {t['date']} | bucket {t['bucket']}°C @ ${t['entry_price']} (${t['cost']})")
-    lines.append(f"• Resoluções: {resolved_24h} | Acertos: {wins_24h} ({pct(wins_24h, resolved_24h)})")
-    lines.append(f"• P&L resolvido 24h: ${pnl_24h:+.2f}")
-    lines.append("")
-    lines.append("📈 *Últimos 7 dias*")
-    lines.append(f"• Entradas: {entries_7d} (média {entries_7d / 7:.1f}/dia)")
-    lines.append(f"• Resoluções: {resolved_7d} | Acertos: {wins_7d} ({pct(wins_7d, resolved_7d)})")
-    lines.append(f"• P&L resolvido 7d: ${pnl_7d:+.2f}")
-    lines.append("")
-    lines.append(f"📂 Posições abertas: {len(open_positions)}")
-    for t in open_positions:
-        lines.append(f"  ▸ {t['city'].title()} {t['date']} | bucket {t['bucket']}°C @ ${t['entry_price']}")
-    report = "\n".join(lines)
-
-    # salva
-    ts = datetime.now().strftime("%Y%m%d_%H%M")
-    out = os.path.join(REPORTS, f"daily_{ts}.md")
-    with open(out, "w") as fp:
-        fp.write(report + "\n")
-    # mantém só os 30 últimos
-    olds = sorted(glob.glob(os.path.join(REPORTS, "daily_*.md")))
-    for o in olds[:-30]:
-        os.remove(o)
-
-    print(report)
-
-    # telegram
+markets = []
+for fp in glob.glob(os.path.join(PROJ, "data", "markets", "*.json")):
     try:
-        sys.path.insert(0, BASE)
-        from telegram_alerts import send_telegram_message
-        send_telegram_message(report)
-    except Exception as e:
-        print(f"[WARN] telegram falhou: {e}", file=sys.stderr)
+        markets.append(json.load(open(fp)))
+    except Exception:
+        continue
 
+state = {}
+try:
+    state = json.load(open(os.path.join(PROJ, "data", "state.json")))
+except Exception:
+    pass
 
-if __name__ == "__main__":
-    main()
+balance = state.get("balance", 0.0)
+total_trades_hist = state.get("total_trades", "?")
+wins_hist = state.get("wins", "?")
+
+# ---------- trades das últimas 24h ----------
+closed_24h = []   # fechados/resolvidos nas últimas 24h
+opened_24h = []   # abertos nas últimas 24h
+open_positions = []
+
+for m in markets:
+    pos = m.get("position")
+    if not pos:
+        continue
+    opened = parse_ts(pos.get("opened_at"))
+    closed = parse_ts(pos.get("closed_at"))
+    if pos.get("status") == "open":
+        open_positions.append((m, pos))
+    if closed and closed >= cutoff:
+        closed_24h.append((m, pos))
+    if opened and opened >= cutoff:
+        opened_24h.append((m, pos))
+
+wins = [(m, p) for m, p in closed_24h if (p.get("pnl") or 0) > 0]
+losses = [(m, p) for m, p in closed_24h if (p.get("pnl") or 0) <= 0]
+pnl_24h = sum(p.get("pnl") or 0 for _, p in closed_24h)
+wr = len(wins)/len(closed_24h)*100 if closed_24h else 0.0
+
+best = max(closed_24h, key=lambda x: x[1].get("pnl") or 0, default=None)
+worst = min(closed_24h, key=lambda x: x[1].get("pnl") or 0, default=None)
+
+# ---------- por cidade (últimos 7 dias p/ contexto) ----------
+cutoff7 = now - timedelta(days=7)
+city_stats = {}
+for m in markets:
+    pos = m.get("position")
+    if not pos or pos.get("status") == "open":
+        continue
+    closed = parse_ts(pos.get("closed_at"))
+    if not closed or closed < cutoff7:
+        continue
+    c = m["city"]
+    st = city_stats.setdefault(c, [0, 0, 0.0])
+    pnl = pos.get("pnl") or 0
+    st[2] += pnl
+    if pnl > 0: st[0] += 1
+    else: st[1] += 1
+
+city_lines = sorted(city_stats.items(), key=lambda x: x[1][2])
+city_str = ""
+for c, (w, l, pnl) in city_lines[:4]:
+    tot = w + l
+    city_str += f"• {c}: {w}W/{l}L ({w/tot*100:.0f}%) {pnl:+.2f}\n"
+city_str += "...\n"
+for c, (w, l, pnl) in city_lines[-4:]:
+    tot = w + l
+    city_str += f"• {c}: {w}W/{l}L ({w/tot*100:.0f}%) {pnl:+.2f}\n"
+
+# ---------- posições abertas ----------
+open_str = ""
+for m, p in open_positions[:6]:
+    open_str += (f"• {m['city']}: {p['bucket_low']:.0f}°C | "
+                 f"entrada ${p['entry_price']:.2f} | PnL at. {(p.get('pnl') or 0):+.2f}\n")
+if not open_str:
+    open_str = "• nenhuma\n"
+
+# ---------- acurácia do forecast (resolvidos 24h, |fc - real| via bucket) ----------
+mae_list = []
+for m, p in closed_24h:
+    fc = p.get("forecast_temp")
+    if fc is not None and p.get("bucket_low") is not None:
+        mae_list.append(abs(fc - (p["bucket_low"] + p["bucket_high"]) / 2))
+mae = sum(mae_list)/len(mae_list) if mae_list else None
+
+# ---------- texto ----------
+w24, l24 = len(wins), len(losses)
+lines = [f"📊 <b>Tempo-Bet — Relatório Diário</b>", f"🗓 {today}", ""]
+lines.append(f"💰 <b>Saldo:</b> ${balance:,.2f}")
+lines.append(f"📈 <b>PnL 24h:</b> {pnl_24h:+.2f}  |  Trades fechados: {len(closed_24h)} ({w24}W/{l24}L, WR {wr:.0f}%)")
+if opened_24h:
+    lines.append(f"🆕 <b>Novas posições 24h:</b> {len(opened_24h)}")
+if mae is not None:
+    lines.append(f"🎯 <b>MAE forecast (24h):</b> {mae:.2f}°C")
+lines.append("")
+lines.append(f"📂 <b>Posições abertas ({len(open_positions)}):</b>")
+lines.append(open_str)
+if closed_24h:
+    lines.append("<b>Trades fechados 24h:</b>")
+    for m, p in closed_24h[:10]:
+        emoji = "✅" if (p.get("pnl") or 0) > 0 else "❌"
+        reason = p.get("close_reason", "?")
+        lines.append(f"{emoji} {m['city']} {p['bucket_low']:.0f}°C | "
+                     f"in ${p['entry_price']:.2f} | {reason} | {p.get('pnl', 0):+.2f}")
+    if best and (best[1].get("pnl") or 0) > 0:
+        lines.append(f"🏆 Melhor: {best[0]['city']} {best[1]['pnl']:+.2f}")
+    if worst and (worst[1].get("pnl") or 0) < 0:
+        lines.append(f"💀 Pior: {worst[0]['city']} {worst[1]['pnl']:+.2f}")
+lines.append("")
+if city_stats:
+    lines.append("<b>Cidades (7d):</b>")
+    lines.append(city_str.strip())
+lines.append("")
+wr_hist = "?"
+try:
+    w_, l_ = state.get("wins"), state.get("losses")
+    if isinstance(w_, int) and isinstance(l_, int) and (w_ + l_) > 0:
+        wr_hist = f"{w_/(w_+l_)*100:.0f}% ({w_}W/{l_}L)"
+except Exception:
+    pass
+lines.append(f"📚 <b>Total histórico:</b> {total_trades_hist} trades | WR {wr_hist}")
+
+text = "\n".join(lines)
+
+# ---------- envio + persistência ----------
+sent = False
+try:
+    sent = bool(send_telegram_message(text))
+except Exception as e:
+    print(f"Telegram error: {e}")
+
+report_path = os.path.join(REPORTS_DIR, f"{today}.md")
+with open(report_path, "w") as f:
+    f.write(text.replace("<b>", "**").replace("</b>", "**") + f"\n\n--\nenviado_telegram: {sent}\n")
+
+print(text)
+print(f"\n[salvo em {report_path} | telegram: {sent}]")
+sys.exit(0 if sent else 1)
