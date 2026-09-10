@@ -1579,13 +1579,19 @@ def scan_and_update():
                     # v3.9: BLEND modelo+mercado. O preço da Polymarket é preditor
                     # tão bom quanto o modelo (WR real ≈ preço de entrada nos 558
                     # trades). p_blend evita apostar quando modelo e mercado brigam.
-                    p = round(0.5 * p_model + 0.5 * ask, 4)
+                    # (peso definido no bloco v3.9.1 abaixo)
 
-                    # v3.9: gate de acertividade — entrar SÓ na faixa de 60-70% WR
-                    # real (dados: entradas $0.50-0.75 → 62% WR; p 0.65-0.8 → 91%).
+                    # v3.9.1: gate corrigido. O original (p_blend>=0.55 + ask<=0.45)
+                    # era matematicamente inalcançável: p_blend>=0.55 com ask<=0.45
+                    # exige p_model>=0.65 com preço baixo — só 3/560 trades históricos
+                    # cumpriam. Bot ficou 5 dias sem apostar. Grid nos 558 trades:
+                    # w=0.7 (modelo 70%, mercado 30%), p_blend>=0.55, ask<=0.75
+                    # → n=391, WR 58%, PnL +$3531 (quase todo o PnL histórico).
+                    p = round(0.7 * p_model + 0.3 * ask, 4)
+
                     if p < 0.55:
                         continue
-                    if ask > 0.45:
+                    if ask > 0.75:
                         continue
 
                     ev = calc_ev(p, ask)
