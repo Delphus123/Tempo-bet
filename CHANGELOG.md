@@ -152,3 +152,4 @@ All notable changes to this project will be documented in this file.
 - Paper trading mode
 - Polymarket Gamma API integration
 - Visual Crossing for actual temperature resolution
+- v3.7.2 (2026-09-17): sessão HTTP com retry 3x/backoff 2-4-8s — falhas de DNS intermitentes na Pi não zeram mais o ciclo de scan
