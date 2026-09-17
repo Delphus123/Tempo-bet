@@ -25,6 +25,25 @@ import json
 import math
 import time
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+# Sessão global com retry: rajadas de falha de DNS/rede (observadas na Pi
+# em Sep/2026) não zeram mais o ciclo inteiro de scan.
+def _make_session():
+    s = requests.Session()
+    retry = Retry(
+        total=3,                      # 3 tentativas por request
+        backoff_factor=2,             # espera 2s, 4s, 8s
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"],
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=20)
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
+    return s
+
+HTTP = _make_session()
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -490,7 +509,7 @@ def get_ecmwf(city_slug, dates):
             f"&forecast_days=7&timezone={TIMEZONES.get(city_slug, 'UTC')}"
             f"&models=ecmwf_ifs025&bias_correction=true"
         )
-        data = requests.get(url, timeout=(5, 8)).json()
+        data = HTTP.get(url, timeout=(5, 8)).json()
         if "error" not in data:
             for date, temp in zip(data["daily"]["time"], data["daily"]["temperature_2m_max"]):
                 if date in dates and temp is not None:
@@ -513,7 +532,7 @@ def get_hrrr(city_slug, dates):
             f"&forecast_days=3&timezone={TIMEZONES.get(city_slug, 'UTC')}"
             f"&models=gfs_seamless"  # HRRR+GFS seamless — best option for US
         )
-        data = requests.get(url, timeout=(5, 8)).json()
+        data = HTTP.get(url, timeout=(5, 8)).json()
         if "error" not in data:
             for date, temp in zip(data["daily"]["time"], data["daily"]["temperature_2m_max"]):
                 if date in dates and temp is not None:
@@ -548,7 +567,7 @@ def get_model_ensemble(city_slug, dates):
                 f"&timezone={TIMEZONES.get(city_slug, 'UTC')}"
                 f"&models={model}&bias_correction=true"
             )
-            data = requests.get(url, timeout=(5, 8)).json()
+            data = HTTP.get(url, timeout=(5, 8)).json()
             
             if "error" not in data and "daily" in data:
                 for date in dates:
@@ -589,7 +608,7 @@ def get_metar(city_slug):
     unit = loc["unit"]
     try:
         url = f"https://aviationweather.gov/api/data/metar?ids={station}&format=json"
-        data = requests.get(url, timeout=(5, 8)).json()
+        data = HTTP.get(url, timeout=(5, 8)).json()
         if data and isinstance(data, list):
             temp_c = data[0].get("temp")
             if temp_c is not None:
@@ -612,7 +631,7 @@ def get_actual_temp(city_slug, date_str):
         f"?unitGroup={vc_unit}&key={VC_KEY}&include=days&elements=tempmax"
     )
     try:
-        data = requests.get(url, timeout=(5, 8)).json()
+        data = HTTP.get(url, timeout=(5, 8)).json()
         days = data.get("days", [])
         if days and days[0].get("tempmax") is not None:
             return round(float(days[0]["tempmax"]), 1)
@@ -626,7 +645,7 @@ def check_market_resolved(market_id):
     Returns: None (still open), True (YES won), False (NO won)
     """
     try:
-        r = requests.get(f"https://gamma-api.polymarket.com/markets/{market_id}", timeout=(5, 8))
+        r = HTTP.get(f"https://gamma-api.polymarket.com/markets/{market_id}", timeout=(5, 8))
         data = r.json()
         closed = data.get("closed", False)
         if not closed:
@@ -748,7 +767,7 @@ def update_forecast_bias(city_slug):
 def get_polymarket_event(city_slug, month, day, year):
     slug = f"highest-temperature-in-{city_slug}-on-{month}-{day}-{year}"
     try:
-        r = requests.get(f"https://gamma-api.polymarket.com/events?slug={slug}", timeout=(5, 8))
+        r = HTTP.get(f"https://gamma-api.polymarket.com/events?slug={slug}", timeout=(5, 8))
         data = r.json()
         if data and isinstance(data, list) and len(data) > 0:
             return data[0]
@@ -758,7 +777,7 @@ def get_polymarket_event(city_slug, month, day, year):
 
 def get_market_price(market_id):
     try:
-        r = requests.get(f"https://gamma-api.polymarket.com/markets/{market_id}", timeout=(3, 5))
+        r = HTTP.get(f"https://gamma-api.polymarket.com/markets/{market_id}", timeout=(3, 5))
         prices = json.loads(r.json().get("outcomePrices", "[0.5,0.5]"))
         return float(prices[0])
     except Exception:
@@ -960,7 +979,7 @@ def _fetch_single_model(model_name, model_id, lat, lon, temp_unit, timezone, dat
             f"&forecast_days=7&timezone={timezone}"
             f"&models={model_id}"
         )
-        data = requests.get(url, timeout=(5, 12)).json()
+        data = HTTP.get(url, timeout=(5, 12)).json()
         if "error" not in data and "daily" in data:
             for date in dates:
                 if date in data["daily"]["time"]:
